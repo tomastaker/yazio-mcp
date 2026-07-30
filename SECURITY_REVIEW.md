@@ -10,10 +10,10 @@ tools, filesystem persistence и dependency tree.
 Production dependency audit возвращает 0 vulnerabilities; полный dependency
 audit также возвращает 0. Сервер не логирует секреты, фильтрует профиль,
 использует fail-closed idempotency, подписанный MRTR state и одноразовое
-подтверждение удаления.
+подтверждение destructive-операций.
 
-Основной остаточный риск — сам неофициальный API YAZIO: контракт, OAuth client
-credentials и server behavior не имеют официальной гарантии.
+Основной остаточный риск — сам неофициальный API YAZIO: контракт, общая
+application OAuth-пара и server behavior не имеют официальной гарантии.
 
 ## Исправленные findings
 
@@ -82,6 +82,8 @@ per-date process queue и owner-aware inter-process filesystem lock с heartbeat
 Исправлено: modern MCP использует elicitation и HMAC-SHA256 `requestState` с
 TTL/account binding. Legacy fallback выдаёт случайный одноразовый token,
 хранит только его digest и атомарно потребляет token перед DELETE.
+MRTR preflight использует отдельные `prepare*` методы: не создаёт невидимых
+legacy tokens, а elicitation показывает имя, meal, дату и старое/новое значение.
 
 Код: `src/server.ts`, `src/services/write-service.ts`,
 `src/persistence/idempotency-store.ts`.
@@ -107,11 +109,51 @@ ID. После DELETE выполняется повторное чтение; н
 
 Код: `src/adapters/yazio-adapter.ts`.
 
+### SEC-008 — High — потеря или дублирование при изменении количества
+
+**Impact:** эмуляция update через удаление старой записи до создания новой
+могла потерять данные; необработанный сбой после POST мог оставить дубль.
+
+Исправлено: `update_consumed_item` сначала создаёт replacement с новым UUID,
+проверяет точный ID, затем удаляет исходную запись и снова читает дневник. Если
+исходная запись осталась, удаляется только replacement. Неподтверждённое
+восстановление возвращает `partial_failure` с обоими IDs и не повторяется
+вслепую благодаря idempotency journal. Tool требует MRTR либо одноразовый
+confirmation token. Ошибка transport после применённого POST reconciled по
+точному replacement ID, а полный flow сериализован по date/item ID.
+
+Код: `src/services/write-service.ts`, `src/server.ts`.
+Regression tests: `tests/update-consumed-item.test.ts`.
+
+### SEC-009 — High — token cache мог относиться к другому аккаунту
+
+**Impact:** после изменения `YAZIO_USERNAME` пригодный cached token мог
+продолжить работу с предыдущим аккаунтом.
+
+Исправлено: новый token получает `account_binding` — SHA-256 от нормализованных
+username, base URL и client ID. При несовпадении или legacy cache без binding
+сервер очищает cache и выполняет password grant для настроенного пользователя.
+
+Код: `src/auth/auth-manager.ts`, `src/auth/token-store.ts`.
+Regression test: `tests/auth.test.ts`.
+
+### SEC-010 — Medium — частичные diary totals выглядели полными
+
+**Impact:** recipe/simple rows без nutrients исключались из item sum, поэтому
+дневник мог вернуть правдоподобный, но заниженный total.
+
+Исправлено: при строках без nutrition adapter получает totals из daily-summary.
+Fallback item sum сопровождается `totals_complete: false`,
+`totals_source` и `missing_nutrition_item_ids`.
+
+Код: `src/adapters/yazio-adapter.ts`, `src/schemas.ts`.
+Regression test: `tests/recipes-adapter.test.ts`.
+
 ## Остаточные риски
 
 ### RISK-001 — High operational — неофициальный API
 
-YAZIO может изменить `/v20`, payload или OAuth behavior без уведомления.
+YAZIO может изменить `/v19`, payload или OAuth behavior без уведомления.
 Mitigation: configurable base URL, strict response validation, bounded
 timeouts/concurrency, `Retry-After` только для GET, unified errors,
 mock/live tests и documented unsupported features.
@@ -119,9 +161,11 @@ mock/live tests и documented unsupported features.
 ### RISK-002 — Medium — secrets в environment/client configuration
 
 Environment изолирует secrets от git, но некоторые MCP clients сохраняют
-literal env values в plaintext config. Используйте forwarding (`env_vars`) или
-OS secret manager и ограничьте права client config. Любой password, раскрытый
-в чате или shell history, необходимо сменить.
+literal password в plaintext config. Используйте forwarding (`env_vars`) или OS
+secret manager и ограничьте права client config. Любой password, раскрытый в
+чате или shell history, необходимо сменить. Встроенная application OAuth-пара
+является общей и уже опубликована upstream; она не является пользовательским
+секретом, но может быть отозвана YAZIO.
 
 ### RISK-003 — Medium — Windows ACL
 
@@ -138,7 +182,9 @@ managed endpoint следует заменить `TokenStore` на OS keychain-b
 
 Live tests не являются частью default suite и требуют явного
 `YAZIO_LIVE_TEST=1`. Mock tests доказывают локальные контракты, но не
-гарантируют текущее поведение частного YAZIO API.
+гарантируют текущее поведение частного YAZIO API. В частности, read-only
+recipe endpoints из открытого PR реализованы только внутри adapter и не
+экспонируются как MCP tools до отдельного live-probe на v19.
 
 ## Выполненные проверки
 

@@ -3,6 +3,7 @@ dist/
 coverage/
 .env
 *.log
+.yazio-mcp/
 .nutrition-mcp/
 *.token.json
 *.state.json

@@ -43,7 +43,7 @@ describe('bounded concurrency and cross-process locks', () => {
   });
 
   it('does not steal a live lock after the stale threshold', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-lock-'));
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-lock-'));
     const path = join(directory, 'state.json');
     const first = new FileIdempotencyStore(path, 'scope-a', {
       staleLockMs: 20,

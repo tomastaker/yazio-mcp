@@ -4,6 +4,7 @@ import { YazioAdapter } from '../../src/adapters/yazio-adapter.js';
 import { AuthManager } from '../../src/auth/auth-manager.js';
 import { FileTokenStore } from '../../src/auth/token-store.js';
 import { loadConfig } from '../../src/config.js';
+import { todayInZone } from '../../src/domain/dates.js';
 import { NutritionMcpError } from '../../src/errors.js';
 
 const liveEnabled = process.env.YAZIO_LIVE_TEST === '1';
@@ -37,13 +38,31 @@ describe.skipIf(!liveEnabled)('YAZIO live integration', () => {
     expect(profile).not.toHaveProperty('email');
   });
 
+  it('probes read-only user recipe endpoints on the configured API version', async () => {
+    const recipeIds = await adapter.listUserRecipeIds();
+    expect(recipeIds.every((id) => /^[0-9a-f-]{36}$/i.test(id))).toBe(true);
+    if (recipeIds[0] !== undefined) {
+      const recipe = await adapter.getRecipe(recipeIds[0]);
+      expect(recipe).toMatchObject({ id: recipeIds[0] });
+    }
+  });
+
   it('writes and always removes its own fixture entry', async () => {
-    const productId = process.env.YAZIO_LIVE_PRODUCT_ID;
+    const productId =
+      process.env.YAZIO_LIVE_PRODUCT_ID ??
+      (
+        await adapter.searchProducts({
+          query: process.env.YAZIO_LIVE_PRODUCT_QUERY ?? 'яблоко',
+          limit: 1,
+        })
+      )[0]?.id;
     if (!productId) {
-      throw new Error('YAZIO_LIVE_PRODUCT_ID is required for the cleanup-safe live write test.');
+      throw new Error(
+        'Live write test could not auto-select a product. Set YAZIO_LIVE_PRODUCT_QUERY or YAZIO_LIVE_PRODUCT_ID.',
+      );
     }
     const entryId = randomUUID();
-    const date = new Date().toISOString().slice(0, 10);
+    const date = todayInZone(config.timezone);
     let operationError: unknown;
     let cleanupError: unknown;
     try {

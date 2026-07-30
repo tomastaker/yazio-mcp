@@ -7,13 +7,14 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const projectRoot = resolve(import.meta.dirname, '..');
-const temporaryDirectory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-smoke-'));
+const temporaryDirectory = await mkdtemp(join(tmpdir(), 'yazio-mcp-smoke-'));
 const tokenPath = join(temporaryDirectory, 'token.json');
 const statePath = join(temporaryDirectory, 'state.json');
 const smokeProductId = '11111111-1111-4111-8111-111111111111';
 const smokeDiaryItemId = '22222222-2222-4222-8222-222222222222';
 const mutations = [];
 let diaryEntryPresent = true;
+let replacementDiaryEntry = null;
 await writeFile(
   tokenPath,
   JSON.stringify({
@@ -72,32 +73,58 @@ const httpServer = createServer((request, response) => {
     return;
   }
   if (request.url === '/v20/user/consumed-items?date=2026-07-30') {
+    const products = [];
+    if (diaryEntryPresent) {
+      products.push({
+        id: smokeDiaryItemId,
+        product_id: smokeProductId,
+        date: '2026-07-30',
+        daytime: 'breakfast',
+        amount: 80,
+        serving: null,
+        serving_quantity: null,
+      });
+    }
+    if (replacementDiaryEntry !== null) products.push(replacementDiaryEntry);
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(
       JSON.stringify({
-        products: diaryEntryPresent
-          ? [
-              {
-                id: smokeDiaryItemId,
-                product_id: smokeProductId,
-                date: '2026-07-30',
-                daytime: 'breakfast',
-                amount: 80,
-                serving: null,
-                serving_quantity: null,
-              },
-            ]
-          : [],
+        products,
         recipe_portions: [],
         simple_products: [],
       }),
     );
     return;
   }
+  if (request.url === '/v20/user/consumed-items' && request.method === 'POST') {
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => {
+      body += chunk;
+    });
+    request.on('end', () => {
+      const parsed = JSON.parse(body);
+      replacementDiaryEntry = parsed.products[0];
+      response.writeHead(204);
+      response.end();
+    });
+    return;
+  }
   if (request.url === '/v20/user/consumed-items' && request.method === 'DELETE') {
-    diaryEntryPresent = false;
-    response.writeHead(204);
-    response.end();
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => {
+      body += chunk;
+    });
+    request.on('end', () => {
+      const ids = JSON.parse(body);
+      if (ids.includes(smokeDiaryItemId)) diaryEntryPresent = false;
+      if (replacementDiaryEntry !== null && ids.includes(replacementDiaryEntry.id)) {
+        replacementDiaryEntry = null;
+      }
+      response.writeHead(204);
+      response.end();
+    });
     return;
   }
   response.writeHead(404, { 'content-type': 'application/json' });
@@ -113,14 +140,15 @@ const childEnvironment = {
   NODE_PATH: process.env.NODE_PATH ?? '',
   YAZIO_BASE_URL: `http://127.0.0.1:${address.port}/v20`,
   YAZIO_TOKEN_CACHE_PATH: tokenPath,
-  NUTRITION_MCP_STATE_PATH: statePath,
-  NUTRITION_MCP_TIMEZONE: 'Europe/Moscow',
+  YAZIO_MCP_STATE_PATH: statePath,
+  YAZIO_MCP_TIMEZONE: 'Europe/Moscow',
 };
 
 const runClient = async (mode, expectedEra) => {
   diaryEntryPresent = true;
+  replacementDiaryEntry = null;
   const client = new Client(
-    { name: `nutrition-mcp-smoke-${expectedEra}`, version: '1.0.0' },
+    { name: `yazio-mcp-smoke-${expectedEra}`, version: '1.0.0' },
     {
       versionNegotiation: { mode },
       capabilities: { elicitation: { form: {} } },
@@ -147,6 +175,7 @@ const runClient = async (mode, expectedEra) => {
       'get_diary',
       'add_consumed_item',
       'add_meal_batch',
+      'update_consumed_item',
       'remove_consumed_item',
       'get_nutrition_trends',
       'compare_periods',
@@ -163,6 +192,8 @@ const runClient = async (mode, expectedEra) => {
     assert.equal(profileTool.annotations?.readOnlyHint, true);
     const removeTool = listed.tools.find((tool) => tool.name === 'remove_consumed_item');
     assert.equal(removeTool?.annotations?.destructiveHint, true);
+    const updateTool = listed.tools.find((tool) => tool.name === 'update_consumed_item');
+    assert.equal(updateTool?.annotations?.destructiveHint, true);
     const addTool = listed.tools.find((tool) => tool.name === 'add_consumed_item');
     assert.equal(addTool?.annotations?.idempotentHint, true);
     const result = await client.callTool({ name: 'get_user_profile', arguments: {} });
@@ -193,6 +224,22 @@ const runClient = async (mode, expectedEra) => {
     assert.notEqual(dryRun.isError, true);
     assert.equal(dryRun.structuredContent?.ok, true);
     assert.equal(dryRun.structuredContent?.data?.status, 'dry_run');
+    const updateDryRun = await client.callTool({
+      name: 'update_consumed_item',
+      arguments: {
+        client_request_id: `smoke-update-dry-run-${expectedEra}`,
+        dry_run: true,
+        item_id: smokeDiaryItemId,
+        date: '2026-07-30',
+        amount: 90,
+      },
+    });
+    assert.notEqual(updateDryRun.isError, true);
+    assert.equal(updateDryRun.structuredContent?.data?.status, 'dry_run');
+    assert.equal(
+      typeof updateDryRun.structuredContent?.data?.preview?.confirmation_token,
+      'string',
+    );
 
     if (expectedEra === 'modern') {
       const removed = await client.callTool({
@@ -206,6 +253,23 @@ const runClient = async (mode, expectedEra) => {
       });
       assert.notEqual(removed.isError, true);
       assert.equal(removed.structuredContent?.data?.status, 'removed');
+
+      diaryEntryPresent = true;
+      replacementDiaryEntry = null;
+      const updated = await client.callTool({
+        name: 'update_consumed_item',
+        arguments: {
+          client_request_id: 'smoke-modern-update',
+          dry_run: false,
+          item_id: smokeDiaryItemId,
+          date: '2026-07-30',
+          amount: 90,
+        },
+      });
+      assert.notEqual(updated.isError, true);
+      assert.equal(updated.structuredContent?.data?.status, 'applied');
+      assert.equal(diaryEntryPresent, false);
+      assert.equal(replacementDiaryEntry?.amount, 90);
     } else {
       const preview = await client.callTool({
         name: 'remove_consumed_item',
@@ -241,10 +305,12 @@ try {
   await runClient('legacy', 'legacy');
   assert.deepEqual(mutations, [
     'DELETE /v20/user/consumed-items',
+    'POST /v20/user/consumed-items',
+    'DELETE /v20/user/consumed-items',
     'DELETE /v20/user/consumed-items',
   ]);
   process.stdout.write(
-    'MCP smoke passed: modern 2026-07-28 MRTR + legacy one-time-token fallback; structured tool calls OK.\n',
+    'MCP smoke passed: modern 2026-07-28 MRTR update/remove + legacy one-time-token fallback; structured tool calls OK.\n',
   );
 } finally {
   await new Promise((resolvePromise, rejectPromise) => {

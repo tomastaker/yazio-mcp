@@ -1,15 +1,16 @@
 {
-  "name": "nutrition-mcp",
+  "name": "yazio-mcp",
   "version": "0.1.0",
   "description": "Local stdio MCP server for personal nutrition tracking through the unofficial YAZIO API",
   "type": "module",
   "private": true,
   "bin": {
-    "nutrition-mcp": "./dist/index.js"
+    "yazio-mcp": "./dist/index.js"
   },
   "files": [
     "dist",
     "README.md",
+    "README.ru.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     ".env.example"

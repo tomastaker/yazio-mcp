@@ -8,12 +8,14 @@ import type {
   addMealBatchInputSchema,
   addWaterInputSchema,
   removeConsumedItemInputSchema,
+  updateConsumedItemInputSchema,
 } from '../schemas.js';
 import type { DiaryItem, NutritionBackend, WaterIntake } from '../types.js';
 
 type AddInput = z.infer<typeof addConsumedItemInputSchema>;
 type BatchInput = z.infer<typeof addMealBatchInputSchema>;
 type RemoveInput = z.infer<typeof removeConsumedItemInputSchema>;
+type UpdateInput = z.infer<typeof updateConsumedItemInputSchema>;
 type WaterInput = z.infer<typeof addWaterInputSchema>;
 
 interface AddResult {
@@ -42,6 +44,48 @@ interface BatchResult {
   status: 'dry_run' | 'applied' | 'rolled_back' | 'partial_failure';
   items: BatchItemResult[];
   preview: Array<Record<string, unknown>>;
+}
+
+type UpdateResult =
+  | {
+      status: 'dry_run';
+      preview: Record<string, unknown>;
+      old_entry_id: string;
+      replacement_entry_id: null;
+      verified: false;
+    }
+  | {
+      status: 'applied';
+      preview: Record<string, unknown>;
+      old_entry_id: string;
+      replacement_entry_id: string;
+      verified: true;
+    }
+  | {
+      status: 'rolled_back';
+      preview: Record<string, unknown>;
+      old_entry_id: string;
+      replacement_entry_id: string;
+      verified: true;
+      message: string;
+    }
+  | {
+      status: 'partial_failure';
+      preview: Record<string, unknown>;
+      old_entry_id: string;
+      replacement_entry_id: string;
+      verified: false;
+      message: string;
+    };
+
+interface UpdatePreparation {
+  original: DiaryItem;
+  replacementPreview: Record<string, unknown>;
+  preview: {
+    action: 'update_consumed_item';
+    old_item: DiaryItem;
+    replacement: Record<string, unknown>;
+  };
 }
 
 export class WriteService {
@@ -251,6 +295,228 @@ export class WriteService {
     return result;
   }
 
+  async updateConsumedItem(
+    input: UpdateInput,
+    authorization?: { kind: 'mrtr' },
+  ): Promise<UpdateResult> {
+    return this.idempotency.runExclusive(
+      `consumed-item:${input.date}:${input.item_id}`,
+      () => this.updateConsumedItemLocked(input, authorization),
+    );
+  }
+
+  async prepareConsumedItemUpdate(
+    input: UpdateInput,
+  ): Promise<{ preview: UpdatePreparation['preview']; old_entry_id: string }> {
+    const prepared = await this.prepareUpdate(input);
+    return { preview: prepared.preview, old_entry_id: prepared.original.id };
+  }
+
+  private async updateConsumedItemLocked(
+    input: UpdateInput,
+    authorization?: { kind: 'mrtr' },
+  ): Promise<UpdateResult> {
+    const operationFingerprint = fingerprint({
+      item_id: input.item_id,
+      date: input.date,
+      amount: input.amount,
+    });
+    if (!input.dry_run) {
+      const begin = await this.idempotency.begin<UpdateResult>(
+        'update_consumed_item',
+        input.client_request_id,
+        operationFingerprint,
+      );
+      if (begin.kind === 'cached') return begin.result;
+    }
+
+    let prepared: UpdatePreparation;
+    try {
+      prepared = await this.prepareUpdate(input);
+    } catch (error) {
+      if (!input.dry_run) {
+        await this.idempotency.fail('update_consumed_item', input.client_request_id);
+      }
+      throw error;
+    }
+    const { original, preview } = prepared;
+
+    if (input.dry_run) {
+      const confirmation = await this.idempotency.issueConfirmation(operationFingerprint);
+      return {
+        status: 'dry_run',
+        preview: {
+          ...preview,
+          confirmation_token: confirmation.token,
+          confirmation_expires_at: confirmation.expiresAt,
+        },
+        old_entry_id: original.id,
+        replacement_entry_id: null,
+        verified: false,
+      };
+    }
+
+    if (
+      authorization?.kind !== 'mrtr' &&
+      (input.confirmation_token === undefined ||
+        !(await this.idempotency.consumeConfirmation(
+          input.confirmation_token,
+          operationFingerprint,
+        )))
+    ) {
+      await this.idempotency.fail('update_consumed_item', input.client_request_id);
+      throw new NutritionMcpError(
+        'CONFIRMATION_REQUIRED',
+        'Нужен MRTR-ответ пользователя либо действующий одноразовый confirmation_token из dry-run.',
+      );
+    }
+
+    const replacementId = randomUUID();
+    try {
+      await this.backend.addConsumedItem({
+        id: replacementId,
+        product_id: original.product_id as string,
+        date: original.date,
+        daytime: original.daytime,
+        amount: input.amount,
+        serving: original.serving,
+        serving_quantity: original.serving_quantity,
+      });
+    } catch {
+      const stateAfterError = await this.readReplacementState(
+        input.date,
+        original.id,
+        replacementId,
+      );
+      if (stateAfterError?.newPresent !== true) {
+        const restored = await this.compensateReplacement(
+          input.date,
+          original.id,
+          replacementId,
+        );
+        const result: UpdateResult = restored
+          ? {
+              status: 'rolled_back',
+              preview,
+              old_entry_id: original.id,
+              replacement_entry_id: replacementId,
+              verified: true,
+              message:
+                'POST replacement завершился ошибкой; точный replacement ID удалён, исходная запись сохранена.',
+            }
+          : {
+              status: 'partial_failure',
+              preview,
+              old_entry_id: original.id,
+              replacement_entry_id: replacementId,
+              verified: false,
+              message:
+                'POST replacement завершился неоднозначно; проверьте оба entry ID вручную.',
+            };
+        await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
+        return result;
+      }
+      // The exact generated ID exists, so the POST was applied despite the
+      // transport error. Continue the verified replacement flow.
+    }
+
+    const replacementVerified = await this.hasDiaryItem(input.date, replacementId);
+    if (replacementVerified !== true) {
+      const restored = await this.compensateReplacement(input.date, original.id, replacementId);
+      const result: UpdateResult = restored
+        ? {
+            status: 'rolled_back',
+            preview,
+            old_entry_id: original.id,
+            replacement_entry_id: replacementId,
+            verified: true,
+            message:
+              'Новая запись не была подтверждена; replacement удалён, исходная запись сохранена.',
+          }
+        : {
+            status: 'partial_failure',
+            preview,
+            old_entry_id: original.id,
+            replacement_entry_id: replacementId,
+            verified: false,
+            message:
+              'Невозможно подтвердить replacement и восстановление исходного состояния; проверьте дневник вручную.',
+          };
+      await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
+      return result;
+    }
+
+    try {
+      await this.backend.removeConsumedItem(original.id);
+    } catch {
+      // DELETE may have been applied before a transport error. The exact IDs
+      // are checked below before deciding whether compensation is required.
+    }
+
+    const state = await this.readReplacementState(input.date, original.id, replacementId);
+    if (state?.oldPresent === false && state.newPresent) {
+      const result: UpdateResult = {
+        status: 'applied',
+        preview,
+        old_entry_id: original.id,
+        replacement_entry_id: replacementId,
+        verified: true,
+      };
+      await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
+      return result;
+    }
+
+    if (state?.oldPresent === true && state.newPresent === false) {
+      const result: UpdateResult = {
+        status: 'rolled_back',
+        preview,
+        old_entry_id: original.id,
+        replacement_entry_id: replacementId,
+        verified: true,
+        message: 'Исходная запись сохранена, replacement отсутствует.',
+      };
+      await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
+      return result;
+    }
+
+    if (state?.oldPresent === true && state.newPresent) {
+      const restored = await this.compensateReplacement(input.date, original.id, replacementId);
+      const result: UpdateResult = restored
+        ? {
+            status: 'rolled_back',
+            preview,
+            old_entry_id: original.id,
+            replacement_entry_id: replacementId,
+            verified: true,
+            message:
+              'Удаление исходной записи не подтвердилось; replacement удалён, исходная запись сохранена.',
+          }
+        : {
+            status: 'partial_failure',
+            preview,
+            old_entry_id: original.id,
+            replacement_entry_id: replacementId,
+            verified: false,
+            message:
+              'Исходная и новая записи могут существовать одновременно; проверьте дневник вручную.',
+          };
+      await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
+      return result;
+    }
+
+    const result: UpdateResult = {
+      status: 'partial_failure',
+      preview,
+      old_entry_id: original.id,
+      replacement_entry_id: replacementId,
+      verified: false,
+      message:
+        'Итог удаления не удалось перечитать; повторная запись заблокирована idempotency journal.',
+    };
+    await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
+    return result;
+  }
+
   async removeConsumedItem(
     input: RemoveInput,
     authorization?: { kind: 'mrtr' },
@@ -265,18 +531,16 @@ export class WriteService {
       );
       if (begin.kind === 'cached') return begin.result;
     }
-    const diary = await this.backend.getDiary(input.date);
-    const item = diary.items.find((entry) => entry.id === input.item_id);
-    if (item === undefined) {
+    let prepared: { item: DiaryItem; preview: Record<string, unknown> };
+    try {
+      prepared = await this.prepareRemoval(input);
+    } catch (error) {
       if (!input.dry_run) {
         await this.idempotency.fail('remove_consumed_item', input.client_request_id);
       }
-      throw new NutritionMcpError('UPSTREAM_NOT_FOUND', 'Запись дневника не найдена на указанную дату.');
+      throw error;
     }
-    const preview = {
-      action: 'remove_consumed_item',
-      item,
-    };
+    const { preview } = prepared;
     if (input.dry_run) {
       const confirmation = await this.idempotency.issueConfirmation(removalFingerprint);
       return {
@@ -315,6 +579,12 @@ export class WriteService {
     const result = { status: verified ? 'removed' : 'removed_unverified', preview, verified };
     await this.idempotency.complete('remove_consumed_item', input.client_request_id, result);
     return result;
+  }
+
+  async prepareConsumedItemRemoval(
+    input: RemoveInput,
+  ): Promise<{ preview: Record<string, unknown>; item: DiaryItem }> {
+    return this.prepareRemoval(input);
   }
 
   async addWaterIntake(input: WaterInput): Promise<Record<string, unknown>> {
@@ -419,6 +689,66 @@ export class WriteService {
     };
   }
 
+  private async prepareUpdate(input: UpdateInput): Promise<UpdatePreparation> {
+    const diary = await this.backend.getDiary(input.date);
+    const item = diary.items.find((entry) => entry.id === input.item_id);
+    if (item === undefined) {
+      throw new NutritionMcpError(
+        'UPSTREAM_NOT_FOUND',
+        'Запись дневника не найдена на указанную дату.',
+      );
+    }
+    if (item.kind !== 'product' || item.product_id === null) {
+      throw new NutritionMcpError(
+        'UNSUPPORTED_OPERATION',
+        'Безопасное изменение подтверждено только для обычных продуктов YAZIO.',
+      );
+    }
+    if (item.amount === input.amount) {
+      throw new NutritionMcpError(
+        'VALIDATION_ERROR',
+        'Новое количество совпадает с текущим; изменение не требуется.',
+      );
+    }
+    const replacementPreview = await this.consumedPreview({
+      product_id: item.product_id,
+      date: item.date,
+      daytime: item.daytime,
+      amount: input.amount,
+      serving: item.serving,
+      serving_quantity: item.serving_quantity,
+    });
+    return {
+      original: item,
+      replacementPreview,
+      preview: {
+        action: 'update_consumed_item',
+        old_item: item,
+        replacement: replacementPreview,
+      },
+    };
+  }
+
+  private async prepareRemoval(
+    input: RemoveInput,
+  ): Promise<{ preview: Record<string, unknown>; item: DiaryItem }> {
+    const diary = await this.backend.getDiary(input.date);
+    const item = diary.items.find((entry) => entry.id === input.item_id);
+    if (item === undefined) {
+      throw new NutritionMcpError(
+        'UPSTREAM_NOT_FOUND',
+        'Запись дневника не найдена на указанную дату.',
+      );
+    }
+    return {
+      item,
+      preview: {
+        action: 'remove_consumed_item',
+        item,
+      },
+    };
+  }
+
   private async assertNoDuplicate(
     item: Pick<AddInput, 'product_id' | 'date' | 'daytime' | 'amount'>,
   ): Promise<void> {
@@ -445,5 +775,44 @@ export class WriteService {
   ): Promise<DiaryItem | null> {
     const diary = await this.backend.getDiary(item.date);
     return diary.items.find((entry) => entry.id === generatedId) ?? null;
+  }
+
+  private async hasDiaryItem(date: string, itemId: string): Promise<boolean | null> {
+    try {
+      const diary = await this.backend.getDiary(date);
+      return diary.items.some((entry) => entry.id === itemId);
+    } catch {
+      return null;
+    }
+  }
+
+  private async readReplacementState(
+    date: string,
+    oldId: string,
+    replacementId: string,
+  ): Promise<{ oldPresent: boolean; newPresent: boolean } | null> {
+    try {
+      const diary = await this.backend.getDiary(date);
+      return {
+        oldPresent: diary.items.some((entry) => entry.id === oldId),
+        newPresent: diary.items.some((entry) => entry.id === replacementId),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async compensateReplacement(
+    date: string,
+    oldId: string,
+    replacementId: string,
+  ): Promise<boolean> {
+    try {
+      await this.backend.removeConsumedItem(replacementId);
+    } catch {
+      // Verify the exact IDs even if DELETE itself failed.
+    }
+    const state = await this.readReplacementState(date, oldId, replacementId);
+    return state?.oldPresent === true && state.newPresent === false;
   }
 }

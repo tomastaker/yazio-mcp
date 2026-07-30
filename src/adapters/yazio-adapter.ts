@@ -14,6 +14,7 @@ import type {
   NutritionBackend,
   Product,
   ProductDetails,
+  UserRecipeDetails,
   UserProfile,
   WaterIntake,
   WaterWriteInput,
@@ -73,6 +74,36 @@ const rawProductSchema = z
   })
   .passthrough();
 
+const rawRecipeServingSchema = z
+  .object({
+    producer: z.string().nullable(),
+    name: z.string(),
+    amount: z.number().finite().nonnegative(),
+    base_unit: z.string(),
+    serving: z.string().nullable(),
+    serving_quantity: z.number().finite().nullable(),
+    note: z.string().nullable(),
+    product_id: z.string().uuid(),
+  })
+  .passthrough();
+
+const rawRecipeSchema = z
+  .object({
+    id: z.string().uuid(),
+    yazio_id: z.string().nullable(),
+    locale: z.string(),
+    name: z.string(),
+    portion_count: z.number().finite(),
+    nutrients: nutrientRecordSchema,
+    image: z.string().nullable(),
+    instructions: z.array(z.string()),
+    is_yazio_recipe: z.boolean(),
+    available_since: z.string().nullable(),
+    is_pro_recipe: z.boolean(),
+    servings: z.array(rawRecipeServingSchema),
+  })
+  .passthrough();
+
 const rawDiarySchema = z
   .object({
     products: z.array(
@@ -88,7 +119,18 @@ const rawDiarySchema = z
         })
         .passthrough(),
     ),
-    recipe_portions: z.array(z.record(z.string(), z.unknown())),
+    recipe_portions: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          date: z.string().min(10),
+          daytime: z.enum(['breakfast', 'lunch', 'dinner', 'snack']),
+          type: z.literal('recipe_portion').optional(),
+          recipe_id: z.string().uuid(),
+          portion_count: z.number().finite().nonnegative(),
+        })
+        .passthrough(),
+    ),
     simple_products: z.array(z.record(z.string(), z.unknown())),
   })
   .passthrough();
@@ -291,6 +333,37 @@ export class YazioAdapter implements NutritionBackend {
     };
   }
 
+  async listUserRecipeIds(): Promise<string[]> {
+    const endpoint = '/user/recipes';
+    return this.parseUpstream(
+      z.array(z.string().uuid()),
+      await this.request(endpoint),
+      endpoint,
+    );
+  }
+
+  async getRecipe(id: string): Promise<UserRecipeDetails | null> {
+    const endpoint = `/recipes/${encodeURIComponent(id)}`;
+    const raw = await this.request(endpoint, { allowNotFound: true });
+    if (raw === null) return null;
+    const recipe = this.parseUpstream(rawRecipeSchema, raw, '/recipes/:id');
+    return {
+      id: recipe.id,
+      yazio_id: recipe.yazio_id,
+      locale: recipe.locale,
+      name: recipe.name,
+      portion_count: recipe.portion_count,
+      nutrition: normalizeNutrition(recipe.nutrients),
+      nutrition_basis: 'upstream_unspecified',
+      image: recipe.image,
+      instructions: recipe.instructions,
+      is_yazio_recipe: recipe.is_yazio_recipe,
+      available_since: recipe.available_since,
+      is_pro_recipe: recipe.is_pro_recipe,
+      servings: recipe.servings,
+    };
+  }
+
   async getDiary(date: string): Promise<DiaryDay> {
     const endpoint = `/user/consumed-items?${new URLSearchParams({ date })}`;
     const raw = this.parseUpstream(
@@ -313,6 +386,19 @@ export class YazioAdapter implements NutritionBackend {
         productDetails.set(id, await this.getProduct(id));
       },
     );
+    const recipeDetails = new Map<string, UserRecipeDetails | null>();
+    const recipeIds = [
+      ...new Set(raw.recipe_portions.map((item) => item.recipe_id)),
+    ];
+    await mapWithConcurrency(recipeIds, 6, async (id) => {
+      try {
+        recipeDetails.set(id, await this.getRecipe(id));
+      } catch {
+        // Recipe reads are community-observed but not guaranteed on every API
+        // version. Diary rows remain usable through recipe_id if enrichment fails.
+        recipeDetails.set(id, null);
+      }
+    });
 
     const items: DiaryItem[] = [];
     for (const item of raw.products) {
@@ -325,6 +411,7 @@ export class YazioAdapter implements NutritionBackend {
         daytime: item.daytime,
         kind: 'product',
         product_id: productId,
+        recipe_id: null,
         name: product?.name ?? null,
         amount,
         serving: typeof item.serving === 'string' ? item.serving : null,
@@ -332,15 +419,37 @@ export class YazioAdapter implements NutritionBackend {
         nutrition: product === null ? null : scaleNutrition(product.nutrition, amount / 100),
       });
     }
-    for (const item of raw.recipe_portions) items.push(this.nonProductDiaryItem(item, date, 'recipe_portion'));
+    for (const item of raw.recipe_portions) {
+      const normalized = this.nonProductDiaryItem(item, date, 'recipe_portion');
+      normalized.name = recipeDetails.get(item.recipe_id)?.name ?? null;
+      items.push(normalized);
+    }
     for (const item of raw.simple_products) items.push(this.nonProductDiaryItem(item, date, 'simple_product'));
+    const missingNutritionItemIds = items
+      .filter((item) => item.nutrition === null)
+      .map((item) => item.id);
+    let totals = items.reduce(
+      (total, item) => (item.nutrition === null ? total : addNutrition(total, item.nutrition)),
+      emptyNutrition(),
+    );
+    let totalsComplete = missingNutritionItemIds.length === 0;
+    let totalsSource: DiaryDay['totals_source'] = 'item_sum';
+    if (!totalsComplete) {
+      try {
+        totals = (await this.getDailySummary(date)).nutrition;
+        totalsComplete = true;
+        totalsSource = 'daily_summary';
+      } catch {
+        // Return the known item sum only with an explicit partial marker.
+      }
+    }
     return {
       date,
       items,
-      totals: items.reduce(
-        (total, item) => (item.nutrition === null ? total : addNutrition(total, item.nutrition)),
-        emptyNutrition(),
-      ),
+      totals,
+      totals_complete: totalsComplete,
+      totals_source: totalsSource,
+      missing_nutrition_item_ids: totalsComplete ? [] : missingNutritionItemIds,
     };
   }
 
@@ -560,6 +669,10 @@ export class YazioAdapter implements NutritionBackend {
       daytime: this.mealType(item.daytime),
       kind,
       product_id: null,
+      recipe_id:
+        kind === 'recipe_portion' && typeof item.recipe_id === 'string'
+          ? item.recipe_id
+          : null,
       name: typeof item.name === 'string' ? item.name : null,
       amount:
         typeof item.portion_count === 'number'

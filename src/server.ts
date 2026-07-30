@@ -43,6 +43,8 @@ import {
   toolOutputSchema,
   trendsInputSchema,
   trendsOutputSchema,
+  updateConsumedItemInputSchema,
+  updateConsumedItemOutputSchema,
   userProfileOutputSchema,
   waterOutputSchema,
   weightOutputSchema,
@@ -60,8 +62,8 @@ export interface ServerDependencies {
 const confirmationSchema = z.object({ confirm: z.boolean() });
 const rangeReadConcurrency = 6;
 
-interface RemovalRequestState {
-  operation: 'remove_consumed_item';
+interface DestructiveRequestState {
+  operation: 'remove_consumed_item' | 'update_consumed_item';
   fingerprint: string;
 }
 
@@ -88,7 +90,7 @@ const removeAnnotations = {
 
 const resultMeta = (config: AppConfig) => ({
   timezone: config.timezone,
-  backend: 'yazio-unofficial-v20',
+  backend: 'yazio-unofficial',
   generated_at: new Date().toISOString(),
 });
 
@@ -159,7 +161,7 @@ const createDefaultBackend = (
   );
 };
 
-export const createNutritionServer = async (
+export const createYazioServer = async (
   config: AppConfig,
   dependencies: ServerDependencies = {},
 ): Promise<McpServer> => {
@@ -173,13 +175,13 @@ export const createNutritionServer = async (
   const writeService =
     dependencies.writeService ??
     new WriteService(backend, idempotency, config.timezone);
-  const requestStateCodec = createRequestStateCodec<RemovalRequestState>({
+  const requestStateCodec = createRequestStateCodec<DestructiveRequestState>({
     key: await idempotency.requestStateKey(),
     ttlSeconds: 10 * 60,
     bind: (context) => `${context.mcpReq.method}\0${scope}`,
   });
   const server = new McpServer(
-    { name: 'nutrition-mcp', version: '0.1.0' },
+    { name: 'yazio-mcp', version: '0.1.0' },
     {
       capabilities: { tools: { listChanged: false } },
       requestState: {
@@ -425,6 +427,86 @@ export const createNutritionServer = async (
   );
 
   server.registerTool(
+    'update_consumed_item',
+    {
+      title: 'Изменить количество продукта',
+      description:
+        'Безопасно заменяет существующую запись продукта: создаёт и проверяет replacement, затем удаляет точный старый ID. При ошибке пытается компенсировать replacement. Нативный PATCH YAZIO не подтверждён.',
+      inputSchema: updateConsumedItemInputSchema,
+      outputSchema: toolOutputSchema(updateConsumedItemOutputSchema),
+      annotations: removeAnnotations,
+    },
+    async (input, context: ServerContext) => {
+      if (input.dry_run || input.confirmation_token !== undefined) {
+        return safeResult(
+          config,
+          () => writeService.updateConsumedItem(input),
+          (data) => `Результат изменения: ${statusText(data)}.`,
+        );
+      }
+      const operationFingerprint = fingerprint({
+        item_id: input.item_id,
+        date: input.date,
+        amount: input.amount,
+      });
+      const requestState = context.mcpReq.requestState<DestructiveRequestState>();
+      let prepared: Awaited<ReturnType<WriteService['prepareConsumedItemUpdate']>>;
+      try {
+        prepared = await writeService.prepareConsumedItemUpdate(input);
+      } catch (error) {
+        return errorResult(error);
+      }
+      const response = acceptedContent(
+        context.mcpReq.inputResponses,
+        'confirm_update',
+        confirmationSchema,
+      );
+      if (
+        response?.confirm === true &&
+        requestState?.operation === 'update_consumed_item' &&
+        requestState.fingerprint === operationFingerprint
+      ) {
+        return safeResult(
+          config,
+          () => writeService.updateConsumedItem(input, { kind: 'mrtr' }),
+          (data) => `Результат изменения: ${statusText(data)}.`,
+        );
+      }
+      if (response?.confirm === false) {
+        return errorResult(
+          new NutritionMcpError('CONFIRMATION_REQUIRED', 'Изменение отменено пользователем.'),
+        );
+      }
+      if (response?.confirm === true) {
+        return errorResult(
+          new NutritionMcpError(
+            'CONFIRMATION_REQUIRED',
+            'MRTR requestState отсутствует, истёк или не соответствует операции.',
+          ),
+        );
+      }
+      return inputRequired({
+        inputRequests: {
+          confirm_update: inputRequired.elicit({
+            message:
+              `Подтвердите изменение «${prepared.preview.old_item.name ?? input.item_id}» ` +
+              `(${prepared.preview.old_item.daytime}, ${input.date}) ` +
+              `с ${prepared.preview.old_item.amount} на ${input.amount}.`,
+            requestedSchema: confirmationSchema,
+          }),
+        },
+        requestState: await requestStateCodec.mint(
+          {
+            operation: 'update_consumed_item',
+            fingerprint: operationFingerprint,
+          },
+          context,
+        ),
+      });
+    },
+  );
+
+  server.registerTool(
     'remove_consumed_item',
     {
       title: 'Удалить запись еды',
@@ -443,9 +525,10 @@ export const createNutritionServer = async (
         );
       }
       const operationFingerprint = fingerprint({ date: input.date, item_id: input.item_id });
-      const requestState = context.mcpReq.requestState<RemovalRequestState>();
+      const requestState = context.mcpReq.requestState<DestructiveRequestState>();
+      let prepared: Awaited<ReturnType<WriteService['prepareConsumedItemRemoval']>>;
       try {
-        await writeService.removeConsumedItem({ ...input, dry_run: true });
+        prepared = await writeService.prepareConsumedItemRemoval(input);
       } catch (error) {
         return errorResult(error);
       }
@@ -481,7 +564,9 @@ export const createNutritionServer = async (
       return inputRequired({
         inputRequests: {
           confirm_removal: inputRequired.elicit({
-            message: `Подтвердите удаление diary item ${input.item_id} за ${input.date}.`,
+            message:
+              `Подтвердите удаление «${prepared.item.name ?? input.item_id}» ` +
+              `(${prepared.item.daytime}, ${prepared.item.amount}, ${input.date}).`,
             requestedSchema: confirmationSchema,
           }),
         },

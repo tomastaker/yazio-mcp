@@ -2,13 +2,13 @@
 
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { loadConfig } from './config.js';
-import { createNutritionServer } from './server.js';
+import { createYazioServer } from './server.js';
 
 const config = loadConfig();
 
-serveStdio(() => createNutritionServer(config), {
+serveStdio(() => createYazioServer(config), {
   legacy: 'serve',
   onerror: (error) => {
-    process.stderr.write(`nutrition-mcp transport error: ${error.message}\n`);
+    process.stderr.write(`yazio-mcp transport error: ${error.message}\n`);
   },
 });

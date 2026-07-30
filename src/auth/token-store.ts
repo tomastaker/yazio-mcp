@@ -11,6 +11,7 @@ export const tokenSchema = z.object({
   refresh_token: z.string().min(1),
   expires_in: z.number().positive(),
   expires_at: z.number().positive(),
+  account_binding: z.string().length(64).optional(),
 });
 
 export type StoredToken = z.infer<typeof tokenSchema>;

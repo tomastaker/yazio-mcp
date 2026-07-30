@@ -1,11 +1,12 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { NutritionMcpError } from '../errors.js';
 import { tokenSchema, type StoredToken, type TokenStore } from './token-store.js';
 
 export interface AuthConfig {
   baseUrl: string;
-  clientId: string | undefined;
-  clientSecret: string | undefined;
+  clientId: string;
+  clientSecret: string;
   username: string | undefined;
   password: string | undefined;
   timeoutMs?: number;
@@ -16,7 +17,18 @@ export interface AccessTokenProvider {
   invalidate(): Promise<void> | void;
 }
 
-const oauthResponseSchema = tokenSchema.omit({ expires_at: true });
+const oauthResponseSchema = tokenSchema.omit({ expires_at: true, account_binding: true });
+
+export const authAccountBinding = (
+  config: Pick<AuthConfig, 'baseUrl' | 'clientId' | 'username'>,
+): string | null => {
+  if (config.username === undefined) return null;
+  return createHash('sha256')
+    .update(
+      `${config.baseUrl.replace(/\/+$/, '').toLowerCase()}\0${config.clientId}\0${config.username.trim().toLowerCase()}`,
+    )
+    .digest('hex');
+};
 
 export class AuthManager implements AccessTokenProvider {
   private token: StoredToken | null = null;
@@ -30,7 +42,12 @@ export class AuthManager implements AccessTokenProvider {
 
   async getAccessToken(): Promise<string> {
     if (this.token !== null && this.isUsable(this.token)) return this.token.access_token;
-    const stored = this.token ?? (await this.store.load());
+    let stored = this.token ?? (await this.store.load());
+    if (stored !== null && !this.matchesConfiguredAccount(stored)) {
+      await this.store.clear();
+      stored = null;
+      this.token = null;
+    }
     if (stored !== null && this.isUsable(stored)) {
       this.token = stored;
       return stored.access_token;
@@ -48,6 +65,11 @@ export class AuthManager implements AccessTokenProvider {
 
   private isUsable(token: StoredToken): boolean {
     return token.expires_at - 60_000 > Date.now();
+  }
+
+  private matchesConfiguredAccount(token: StoredToken): boolean {
+    const expected = authAccountBinding(this.config);
+    return expected === null || token.account_binding === expected;
   }
 
   private async obtainToken(expired: StoredToken | null): Promise<StoredToken> {
@@ -81,12 +103,6 @@ export class AuthManager implements AccessTokenProvider {
   }
 
   private async requestToken(grant: Record<string, string>): Promise<StoredToken> {
-    if (!this.config.clientId || !this.config.clientSecret) {
-      throw new NutritionMcpError(
-        'AUTH_REQUIRED',
-        'Нужны YAZIO_CLIENT_ID и YAZIO_CLIENT_SECRET для неофициального OAuth flow.',
-      );
-    }
     let response: Response;
     try {
       response = await this.fetchImplementation(`${this.config.baseUrl}/oauth/token`, {
@@ -137,9 +153,11 @@ export class AuthManager implements AccessTokenProvider {
     if (!parsed.success) {
       throw new NutritionMcpError('UPSTREAM_INVALID_RESPONSE', 'YAZIO вернул неполный OAuth token.');
     }
+    const accountBinding = authAccountBinding(this.config);
     const token: StoredToken = {
       ...parsed.data,
       expires_at: Date.now() + parsed.data.expires_in * 1000,
+      ...(accountBinding === null ? {} : { account_binding: accountBinding }),
     };
     await this.store.save(token);
     return token;

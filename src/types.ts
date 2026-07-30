@@ -32,12 +32,40 @@ export interface ProductDetails extends Product {
   category: string | null;
 }
 
+export interface RecipeServing {
+  producer: string | null;
+  name: string;
+  amount: number;
+  base_unit: string;
+  serving: string | null;
+  serving_quantity: number | null;
+  note: string | null;
+  product_id: string;
+}
+
+export interface UserRecipeDetails {
+  id: string;
+  yazio_id: string | null;
+  locale: string;
+  name: string;
+  portion_count: number;
+  nutrition: Nutrition;
+  nutrition_basis: 'upstream_unspecified';
+  image: string | null;
+  instructions: string[];
+  is_yazio_recipe: boolean;
+  available_since: string | null;
+  is_pro_recipe: boolean;
+  servings: RecipeServing[];
+}
+
 export interface DiaryItem {
   id: string;
   date: string;
   daytime: MealType;
   kind: 'product' | 'recipe_portion' | 'simple_product';
   product_id: string | null;
+  recipe_id: string | null;
   name: string | null;
   amount: number;
   serving: string | null;
@@ -49,6 +77,9 @@ export interface DiaryDay {
   date: string;
   items: DiaryItem[];
   totals: Nutrition;
+  totals_complete: boolean;
+  totals_source: 'item_sum' | 'daily_summary';
+  missing_nutrition_item_ids: string[];
 }
 
 export interface Goals {
@@ -127,6 +158,8 @@ export interface NutritionBackend {
     limit?: number | undefined;
   }): Promise<Product[]>;
   getProduct(id: string): Promise<ProductDetails | null>;
+  listUserRecipeIds(): Promise<string[]>;
+  getRecipe(id: string): Promise<UserRecipeDetails | null>;
   getDiary(date: string): Promise<DiaryDay>;
   getDailySummary(date: string): Promise<DailySummary>;
   getWaterIntake(date: string): Promise<WaterIntake>;

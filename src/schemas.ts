@@ -71,6 +71,14 @@ export const searchProductsInputSchema = z
   .strict();
 
 export const getProductInputSchema = z.object({ product_id: uuidSchema }).strict();
+export const getRecipeInputSchema = z.object({ recipe_id: uuidSchema }).strict();
+export const listUserRecipesInputSchema = z
+  .object({
+    query: z.string().trim().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(50).default(20),
+    scan_limit: z.number().int().min(1).max(500).default(200),
+  })
+  .strict();
 export const getGoalsInputSchema = z.object({ date: isoDateSchema.optional() }).strict();
 export const getDateInputSchema = z.object({ date: isoDateSchema.optional() }).strict();
 
@@ -104,6 +112,13 @@ export const addConsumedItemInputSchema = writeCommonSchema.extend(consumedItemF
 
 export const addMealBatchInputSchema = writeCommonSchema.extend({
   items: z.array(consumedItemFieldsSchema).min(1).max(25),
+});
+
+export const updateConsumedItemInputSchema = writeCommonSchema.extend({
+  item_id: uuidSchema,
+  date: isoDateSchema,
+  amount: z.number().finite().positive().max(100_000),
+  confirmation_token: z.string().min(32).max(256).optional(),
 });
 
 export const removeConsumedItemInputSchema = writeCommonSchema.extend({
@@ -222,12 +237,57 @@ export const productDetailsOutputSchema = productOutputSchema.extend({
   category: z.string().nullable(),
 });
 
+export const recipeServingOutputSchema = z.object({
+  producer: z.string().nullable(),
+  name: z.string(),
+  amount: z.number().finite().nonnegative(),
+  base_unit: z.string(),
+  serving: z.string().nullable(),
+  serving_quantity: z.number().finite().nullable(),
+  note: z.string().nullable(),
+  product_id: uuidSchema,
+});
+
+export const userRecipeDetailsOutputSchema = z.object({
+  id: uuidSchema,
+  yazio_id: z.string().nullable(),
+  locale: z.string(),
+  name: z.string(),
+  portion_count: z.number().finite(),
+  nutrition: nutritionSchema,
+  nutrition_basis: z.literal('upstream_unspecified'),
+  image: z.string().nullable(),
+  instructions: z.array(z.string()),
+  is_yazio_recipe: z.boolean(),
+  available_since: z.string().nullable(),
+  is_pro_recipe: z.boolean(),
+  servings: z.array(recipeServingOutputSchema),
+});
+
+export const userRecipeIdsOutputSchema = z
+  .object({
+    recipe_ids: z.array(uuidSchema),
+  })
+  .strict();
+
+export const userRecipeListOutputSchema = z
+  .object({
+    recipes: z.array(userRecipeDetailsOutputSchema),
+    total_ids: z.number().int().nonnegative(),
+    scanned_ids: z.number().int().nonnegative(),
+    failed_recipe_ids: z.array(uuidSchema),
+    truncated: z.boolean(),
+    partial: z.boolean(),
+  })
+  .strict();
+
 export const diaryItemOutputSchema = z.object({
   id: z.string(),
   date: isoDateSchema,
   daytime: mealTypeSchema,
   kind: z.enum(['product', 'recipe_portion', 'simple_product']),
   product_id: z.string().nullable(),
+  recipe_id: z.string().nullable(),
   name: z.string().nullable(),
   amount: z.number(),
   serving: z.string().nullable(),
@@ -239,6 +299,9 @@ export const diaryDayOutputSchema = z.object({
   date: isoDateSchema,
   items: z.array(diaryItemOutputSchema),
   totals: nutritionSchema,
+  totals_complete: z.boolean(),
+  totals_source: z.enum(['item_sum', 'daily_summary']),
+  missing_nutrition_item_ids: z.array(z.string()),
 });
 
 export const dailySummaryOutputSchema = z.object({
@@ -349,6 +412,58 @@ export const removeConsumedItemOutputSchema = z.discriminatedUnion('status', [
       status: z.enum(['removed', 'removed_unverified']),
       preview: removalPreviewSchema,
       verified: z.boolean(),
+    })
+    .strict(),
+]);
+
+const updateConsumedItemPreviewSchema = z
+  .object({
+    action: z.literal('update_consumed_item'),
+    old_item: diaryItemOutputSchema,
+    replacement: consumedPreviewSchema,
+  })
+  .strict();
+
+export const updateConsumedItemOutputSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      status: z.literal('dry_run'),
+      preview: updateConsumedItemPreviewSchema.extend({
+        confirmation_token: z.string(),
+        confirmation_expires_at: z.iso.datetime(),
+      }),
+      old_entry_id: z.string(),
+      replacement_entry_id: z.null(),
+      verified: z.literal(false),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal('applied'),
+      preview: updateConsumedItemPreviewSchema,
+      old_entry_id: z.string(),
+      replacement_entry_id: z.string(),
+      verified: z.literal(true),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal('rolled_back'),
+      preview: updateConsumedItemPreviewSchema,
+      old_entry_id: z.string(),
+      replacement_entry_id: z.string(),
+      verified: z.literal(true),
+      message: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal('partial_failure'),
+      preview: updateConsumedItemPreviewSchema,
+      old_entry_id: z.string(),
+      replacement_entry_id: z.string(),
+      verified: z.literal(false),
+      message: z.string(),
     })
     .strict(),
 ]);

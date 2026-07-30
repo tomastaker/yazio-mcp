@@ -1,191 +1,243 @@
-# nutrition-mcp
+# YAZIO MCP
 
-Локальный stdio MCP-сервер для персонального учёта питания через неофициальный
-reverse-engineered API YAZIO.
+[English](README.md) · [Русский](README.ru.md)
+
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![MCP 2026-07-28](https://img.shields.io/badge/MCP-2026--07--28-6B5CE7)](https://modelcontextprotocol.io/specification/2026-07-28)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A local [Model Context Protocol](https://modelcontextprotocol.io/) server for
+working with your personal YAZIO nutrition diary from AI agents such as Claude
+Code, Claude Desktop, Codex, and Hermes Agent.
+
+`yazio-mcp` speaks MCP over stdio and talks directly to YAZIO through a small,
+typed adapter maintained in this repository. It does not depend on the legacy
+`yazio` npm package or on a third-party proxy service.
 
 > [!WARNING]
-> YAZIO не публикует и не поддерживает публичный API. Маршруты могут измениться
-> без предупреждения, аккаунт может попасть под ограничения сервиса, а операции
-> записи нельзя считать транзакционными. Используйте сервер только для своего
-> аккаунта и на свой риск.
+> YAZIO does not publish or support a public developer API. This project uses a
+> reverse-engineered, unofficial API that may change or be blocked without
+> notice. Use it only with your own account and at your own risk. This project
+> is not affiliated with, endorsed by, or sponsored by YAZIO GmbH.
 
-## Возможности
+## What you can do
 
-- MCP `2026-07-28` через официальный split SDK v2 и совместимость с legacy
-  MCP-клиентами через `serveStdio`;
-- refresh-token flow с fallback на password grant;
-- безопасный token cache (`0600` на POSIX, каталог `0700`);
-- русский поиск по умолчанию: `RU` / `ru_RU`;
-- даты в явной timezone, по умолчанию `Europe/Moscow`;
-- `structuredContent`, `outputSchema`, короткий текстовый fallback и единый
-  machine-readable error envelope;
-- диапазоны дневника, локально собранные из подтверждённых однодневных запросов;
-- `dry_run`, durable idempotency journal, duplicate detection и read-after-write;
-- batch-компенсация с результатом каждого элемента;
-- MRTR-подтверждение удаления и безопасный fallback для legacy-клиентов;
-- тренды, сравнение периодов и поиск вероятно пропущенных приёмов пищи.
+- Search the YAZIO product database using Russian defaults (`RU`, `ru_RU`).
+- Read breakfast, lunch, dinner, and snack entries for one day or a date range.
+- Inspect daily calories, macros, water, weight, goals, and exercises.
+- Add individual products or a compensated batch of meal items.
+- Change the amount of an existing product entry, for example `200 g → 210 g`.
+- Remove an exact diary entry after explicit confirmation.
+- Add water using a guarded read-modify-write flow.
+- Compare periods and analyze nutrition trends by day, ISO week, or month.
+- Flag days or meal slots that may be missing entries without inventing food.
 
-Проект не использует пакет `yazio` как runtime-зависимость. Интеграция
-изолирована в сменном `NutritionBackend` / `YazioAdapter`.
+Every tool returns:
 
-## Требования и установка
+- an `outputSchema`;
+- machine-readable `structuredContent`;
+- a short text fallback for older clients;
+- normalized calories, protein, fat, carbohydrates, fiber, and sugar;
+- a consistent error envelope with stable error codes.
 
-Node.js 20+ поддерживается. Для production рекомендуется актуальная LTS-ветка
-Node.js 22 или 24.
+## Safety model
+
+Nutrition writes are deliberately conservative:
+
+- `dry_run` defaults to `true`;
+- every write requires a `client_request_id`;
+- duplicate detection runs before product writes;
+- results are verified by reading the diary again;
+- idempotency state survives process restarts;
+- destructive actions use MCP multi-round-trip confirmation when supported;
+- legacy clients receive a short-lived, one-time confirmation token;
+- ambiguous writes are never retried blindly.
+
+YAZIO does not expose a confirmed `PATCH` endpoint for consumed items.
+`update_consumed_item` therefore performs a guarded replacement:
+
+1. Read and identify the exact original entry.
+2. Add a replacement with a new UUID.
+3. Verify that exact replacement UUID.
+4. Delete the original UUID.
+5. Verify the final state.
+6. Remove the replacement as compensation if the original could not be
+   deleted safely.
+
+Updates of the same diary item are serialized across processes that share the
+same state file.
+
+## Available tools
+
+### Read tools
+
+| Tool | Description |
+|---|---|
+| `get_user_profile` | Privacy-filtered profile without email, birth date, tokens, or payment identifiers |
+| `get_goals` | Calorie, macro, water, step, and weight goals |
+| `search_products` | Text search with configurable country and locale |
+| `get_product` | Product details and normalized nutrients per 100 g/ml |
+| `get_diary` | Diary for one date or a range of up to 31 days |
+| `get_daily_summary` | Daily nutrition, goals, water, steps, and four meal buckets |
+| `get_water_intake` | Cumulative water intake for a date |
+| `get_weight` | Latest known weight on or before a date |
+| `get_exercises` | Training and custom training entries |
+
+### Write tools
+
+| Tool | Description |
+|---|---|
+| `add_consumed_item` | Add one product with preview, duplicate detection, idempotency, and verification |
+| `add_meal_batch` | Add up to 25 products and compensate earlier writes after a partial failure |
+| `update_consumed_item` | Safely replace the amount of an existing product entry |
+| `remove_consumed_item` | Remove an exact diary item after MRTR or one-time-token confirmation |
+| `add_water_intake` | Add water by updating the cumulative daily total |
+
+### Analytics tools
+
+| Tool | Description |
+|---|---|
+| `get_nutrition_trends` | Day/week/month averages, goals, variance, and stability |
+| `compare_periods` | Compare calorie and macro averages for two periods |
+| `detect_probable_missing_meals` | Report suspiciously empty meal slots; never writes food automatically |
+
+## Requirements
+
+- Node.js 20 or newer
+- npm
+- A personal YAZIO account that can sign in with email and password
+
+Node.js 22 or 24 LTS is recommended for regular use.
+
+## Quick start
 
 ```bash
-git clone <local-or-approved-repository>
-cd nutrition-mcp
+git clone https://github.com/tomastaker/yazio-mcp.git
+cd yazio-mcp
 npm ci
 npm run build
 ```
 
-Сервер запускается командой:
+The server entry point is:
 
 ```bash
-node /absolute/path/to/nutrition-mcp/dist/index.js
+node /absolute/path/to/yazio-mcp/dist/index.js
 ```
 
-stdout зарезервирован только для MCP JSON-RPC. Диагностика transport отправляется
-в stderr.
+The process uses stdout exclusively for MCP JSON-RPC. Transport diagnostics are
+written to stderr.
 
-## Конфигурация
+## Authentication and configuration
 
-Скопируйте `.env.example` только как список переменных. Сервер сам не загружает
-`.env`; передавайте значения через environment вашего MCP-клиента или менеджер
-секретов.
+The server does not automatically load `.env` files. Pass credentials through
+your MCP client's environment configuration or a local secret manager.
 
-Обязательные для первой авторизации:
+Required for the first login:
 
-| Переменная | Назначение |
+| Variable | Description |
 |---|---|
-| `YAZIO_USERNAME` | Логин личного аккаунта |
-| `YAZIO_PASSWORD` | Пароль личного аккаунта |
-| `YAZIO_CLIENT_ID` | OAuth client ID из трафика вашего авторизованного клиента |
-| `YAZIO_CLIENT_SECRET` | Соответствующий OAuth client secret |
+| `YAZIO_USERNAME` | Email address of your personal YAZIO account |
+| `YAZIO_PASSWORD` | Password of your personal YAZIO account |
 
-После первой авторизации access/refresh token сохраняются локально. Password
-остаётся только в environment и используется снова, если refresh token отклонён.
+After login, the access and refresh tokens are cached locally. The password is
+never written to the token cache. A cached token is bound to a SHA-256
+fingerprint of the normalized username, API base URL, and OAuth client ID, which
+prevents accidentally reusing a token from another account.
 
-Дополнительные переменные:
+YAZIO does not offer public OAuth application registration. The adapter includes
+community-observed application-level OAuth credentials published by the
+MIT-licensed
+[`saganos/yazio_public_api`](https://github.com/saganos/yazio_public_api)
+project. They are shared application identifiers, not a user's personal secret.
+Both can be overridden together if YAZIO rotates them.
 
-| Переменная | Default |
-|---|---|
-| `YAZIO_BASE_URL` | `https://yzapi.yazio.com/v20` |
-| `YAZIO_TOKEN_CACHE_PATH` | `~/.nutrition-mcp/token.json` |
-| `NUTRITION_MCP_STATE_PATH` | `~/.nutrition-mcp/state.json` |
-| `NUTRITION_MCP_TIMEZONE` | `Europe/Moscow` |
-| `YAZIO_PRODUCT_COUNTRIES` | `RU` |
-| `YAZIO_PRODUCT_LOCALES` | `ru_RU` |
-| `YAZIO_DEFAULT_SEX` | `male` |
-| `YAZIO_HTTP_TIMEOUT_MS` | `15000` |
+### Optional variables
 
-`YAZIO_BASE_URL` настраиваемый, потому что API неофициальный. Не передавайте его
-из prompt/tool input: это только доверенная локальная конфигурация.
+| Variable | Default | Purpose |
+|---|---|---|
+| `YAZIO_BASE_URL` | `https://yzapi.yazio.com/v19` | Trusted local API configuration |
+| `YAZIO_TOKEN_CACHE_PATH` | `~/.yazio-mcp/token.json` | Access/refresh token cache |
+| `YAZIO_MCP_STATE_PATH` | `~/.yazio-mcp/state.json` | Idempotency and confirmation state |
+| `YAZIO_MCP_TIMEZONE` | `Europe/Moscow` | IANA timezone used for dates |
+| `YAZIO_PRODUCT_COUNTRIES` | `RU` | Comma-separated product countries |
+| `YAZIO_PRODUCT_LOCALES` | `ru_RU` | Comma-separated product locales |
+| `YAZIO_DEFAULT_SEX` | `male` | Search parameter required by the upstream API |
+| `YAZIO_HTTP_TIMEOUT_MS` | `15000` | HTTP timeout, from 1,000 to 120,000 ms |
+| `YAZIO_CLIENT_ID` | built in | Advanced paired OAuth override |
+| `YAZIO_CLIENT_SECRET` | built in | Advanced paired OAuth override |
 
-## Подключение клиентов
+`NUTRITION_MCP_STATE_PATH` and `NUTRITION_MCP_TIMEZONE` are accepted as
+deprecated migration aliases. Conflicting old and new values are rejected.
 
-В примерах замените `/absolute/path/to/nutrition-mcp` на фактический путь.
-Секреты не следует коммитить в client config. Предпочтительно экспортировать их
-из shell/secret manager и использовать forwarding, если клиент это поддерживает.
+## Client configuration
 
-### Hermes Agent
-
-`~/.hermes/config.yaml`:
-
-```yaml
-mcp_servers:
-  nutrition:
-    command: "node"
-    args: ["/absolute/path/to/nutrition-mcp/dist/index.js"]
-    env:
-      YAZIO_USERNAME: "set-locally"
-      YAZIO_PASSWORD: "set-locally"
-      YAZIO_CLIENT_ID: "set-locally"
-      YAZIO_CLIENT_SECRET: "set-locally"
-      NUTRITION_MCP_TIMEZONE: "Europe/Moscow"
-    timeout: 90
-    connect_timeout: 15
-    supports_parallel_tool_calls: false
-    enabled: true
-```
-
-Parallel calls отключены как консервативный default для неофициального API.
-Сам сервер сериализует запись воды между процессами при общем
-`NUTRITION_MCP_STATE_PATH`. Формат `mcp_servers` подтверждён
-[документацией Hermes](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md).
+Replace `/absolute/path/to/yazio-mcp` in the examples below with the real
+checkout path. Prefer environment forwarding or an OS secret manager over
+storing credentials directly in a client configuration file.
 
 ### Claude Code
 
-Проектный `.mcp.json`:
+Create `.mcp.json` in your project:
 
 ```json
 {
   "mcpServers": {
-    "nutrition": {
+    "yazio": {
       "type": "stdio",
       "command": "node",
-      "args": ["/absolute/path/to/nutrition-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/yazio-mcp/dist/index.js"],
       "env": {
         "YAZIO_USERNAME": "${YAZIO_USERNAME}",
-        "YAZIO_PASSWORD": "${YAZIO_PASSWORD}",
-        "YAZIO_CLIENT_ID": "${YAZIO_CLIENT_ID}",
-        "YAZIO_CLIENT_SECRET": "${YAZIO_CLIENT_SECRET}"
+        "YAZIO_PASSWORD": "${YAZIO_PASSWORD}"
       }
     }
   }
 }
 ```
 
-Проверка:
+Verify the connection:
 
 ```bash
 claude mcp list
 ```
 
-Синтаксис stdio и `--env` описан в
-[официальной документации Claude Code](https://code.claude.com/docs/en/mcp).
-
 ### Claude Desktop
 
-macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`.
-Windows: `%APPDATA%\Claude\claude_desktop_config.json`.
+Add the server to:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
-    "nutrition": {
+    "yazio": {
       "command": "node",
-      "args": ["/absolute/path/to/nutrition-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/yazio-mcp/dist/index.js"],
       "env": {
         "YAZIO_USERNAME": "set-locally",
-        "YAZIO_PASSWORD": "set-locally",
-        "YAZIO_CLIENT_ID": "set-locally",
-        "YAZIO_CLIENT_SECRET": "set-locally"
+        "YAZIO_PASSWORD": "set-locally"
       }
     }
   }
 }
 ```
 
-Desktop-конфиг содержит literal values. Ограничьте права файла и, если
-возможно, запускайте Desktop через OS secret manager/launcher, а не храните
-пароль в plaintext.
+Claude Desktop stores literal environment values in its configuration. Protect
+that file with appropriate OS permissions.
 
-### Codex / ChatGPT desktop app
+### Codex
 
-Безопаснее всего экспортировать секреты в окружение и forward-ить их через
-`~/.codex/config.toml`:
+Forward environment variables from `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.nutrition]
+[mcp_servers.yazio]
 command = "node"
-args = ["/absolute/path/to/nutrition-mcp/dist/index.js"]
+args = ["/absolute/path/to/yazio-mcp/dist/index.js"]
 env_vars = [
   "YAZIO_USERNAME",
-  "YAZIO_PASSWORD",
-  "YAZIO_CLIENT_ID",
-  "YAZIO_CLIENT_SECRET"
+  "YAZIO_PASSWORD"
 ]
 default_tools_approval_mode = "writes"
 startup_timeout_sec = 15
@@ -193,121 +245,62 @@ tool_timeout_sec = 90
 enabled = true
 ```
 
-Либо через CLI:
+Or register it with the CLI:
 
 ```bash
-codex mcp add nutrition --env YAZIO_USERNAME="$YAZIO_USERNAME" --env YAZIO_PASSWORD="$YAZIO_PASSWORD" --env YAZIO_CLIENT_ID="$YAZIO_CLIENT_ID" --env YAZIO_CLIENT_SECRET="$YAZIO_CLIENT_SECRET" -- node /absolute/path/to/nutrition-mcp/dist/index.js
+codex mcp add yazio \
+  --env YAZIO_USERNAME="$YAZIO_USERNAME" \
+  --env YAZIO_PASSWORD="$YAZIO_PASSWORD" \
+  -- node /absolute/path/to/yazio-mcp/dist/index.js
 ```
 
-`env_vars` предпочтительнее CLI-варианта: последний сохраняет переданные
-значения в локальную конфигурацию. Codex CLI, IDE и desktop app используют
-общую MCP-конфигурацию; после изменения перезапустите клиент.
+Environment forwarding is safer than the CLI variant because literal `--env`
+values may be saved in local client configuration.
 
-## Инструменты
+### Hermes Agent
 
-| Tool | Назначение |
-|---|---|
-| `get_user_profile` | Privacy-filtered профиль без email/DOB/token/payment PII |
-| `get_goals` | Цели калорий, БЖУ, воды, шагов и веса |
-| `search_products` | Поиск с RU/ru_RU default |
-| `get_product` | Полная карточка и nutrients на 100 g/ml |
-| `get_diary` | Дата или диапазон до 31 дня |
-| `get_daily_summary` | Сводка дня и meal buckets |
-| `get_water_intake` | Кумулятивная вода |
-| `get_weight` | Последний вес на дату |
-| `get_exercises` | Упражнения на дату |
-| `add_consumed_item` | Preview, duplicate check, idempotency, verification |
-| `add_meal_batch` | До 25 позиций с компенсацией |
-| `remove_consumed_item` | MRTR/explicit confirmation и verification |
-| `add_water_intake` | Read-modify-write кумулятивного total |
-| `get_nutrition_trends` | День/ISO-неделя/месяц, averages/goals/stability |
-| `compare_periods` | Сравнение средних двух периодов |
-| `detect_probable_missing_meals` | Только вероятные пропуски, без auto-write |
+Add the server to `~/.hermes/config.yaml`:
 
-Каждый write-tool требует `client_request_id`. `dry_run` по умолчанию `true`.
-Чтобы выполнить запись, явно передайте `dry_run: false`.
+```yaml
+mcp_servers:
+  yazio:
+    command: "node"
+    args: ["/absolute/path/to/yazio-mcp/dist/index.js"]
+    env:
+      YAZIO_USERNAME: "set-locally"
+      YAZIO_PASSWORD: "set-locally"
+      YAZIO_MCP_TIMEZONE: "Europe/Moscow"
+    timeout: 90
+    connect_timeout: 15
+    supports_parallel_tool_calls: false
+    enabled: true
+```
 
-Примеры prompt:
+Parallel tool calls are disabled here as a conservative default for an
+unofficial API.
+
+## Example prompts
 
 ```text
-Найди овсяные хлопья в российской базе YAZIO.
-Покажи дневник с 2026-07-01 по 2026-07-07.
-Сначала dry-run: добавь 80 г продукта <uuid> на завтрак 2026-07-30.
-Сравни средние калории и БЖУ за две последние полные недели.
-Найди вероятно пропущенные завтраки, но ничего не добавляй.
+Search the Russian YAZIO database for Snickers and show me the best matches.
+
+Show everything I logged for breakfast, lunch, dinner, and snacks today.
+
+First show a dry-run, then add 80 g of product <product-uuid> to breakfast.
+
+Change diary item <item-uuid> from 200 g to 210 g, but show me the preview first.
+
+Compare my average calories and macros for the last two complete weeks.
+
+Find days with probably missing breakfasts, but do not add anything.
 ```
 
-### Удаление и MRTR
+An agent normally searches first, selects a product UUID, previews the write,
+and only then submits the mutation.
 
-Modern MCP 2026-клиент получает form elicitation. Для клиента без MRTR:
+## Responses and errors
 
-1. вызовите `remove_consumed_item` с `dry_run: true`;
-2. проверьте item в preview;
-3. повторите с `dry_run: false` и одноразовым `confirmation_token` из preview.
-
-Token случаен, действует десять минут, привязан к аккаунту, item/date и
-атомарно потребляется при первом использовании. Предсказуемая строка или
-`confirm: true` не принимаются. MRTR `requestState` подписан HMAC-SHA256,
-ограничен TTL и привязан к аккаунту и MCP-методу.
-
-### Batch semantics
-
-YAZIO не документирует транзакционность массива consumed items. Сервер поэтому
-пишет элементы последовательно. При ошибке он удаляет уже созданные IDs в
-обратном порядке. Ответ каждого элемента имеет статус `applied`,
-`applied_unverified`, `failed`, `not_attempted`, `uncertain`, `rolled_back`
-или `rollback_failed`.
-`partial_failure` означает, что полная компенсация не подтверждена.
-Компенсация использует только сгенерированный этим batch ID и подтверждается
-повторным чтением; похожая конкурентная запись никогда не удаляется
-эвристически.
-
-## Подтверждённые YAZIO маршруты
-
-Источники: merged-код
-[`juriadams/yazio`](https://github.com/juriadams/yazio), прототип
-[`fliptheweb/yazio-mcp`](https://github.com/fliptheweb/yazio-mcp), открытый
-[PR v20/refresh](https://github.com/juriadams/yazio/pull/6) и безопасные
-публичные GET-probes.
-
-| Method | Path | Статус |
-|---|---|---|
-| `POST` | `/oauth/token` password grant | merged upstream |
-| `POST` | `/oauth/token` refresh grant | issue + open PR; mock-tested здесь |
-| `GET` | `/user` | merged upstream |
-| `GET` | `/user/goals/unmodified?date=` | merged upstream |
-| `GET` | `/products/search?...` | merged + публичный v15/v20 probe |
-| `GET` | `/products/{uuid}` | merged + публичный v15/v20 probe |
-| `GET` | `/user/consumed-items?date=` | merged upstream |
-| `POST` | `/user/consumed-items` | merged upstream |
-| `DELETE` | `/user/consumed-items` body `["entry-uuid"]` | merged upstream |
-| `GET` | `/user/widgets/daily-summary?date=` | merged upstream |
-| `GET` | `/user/water-intake?date=` | merged upstream |
-| `POST` | `/user/water-intake` cumulative array payload | issue + working prototype |
-| `GET` | `/user/bodyvalues/weight/last?date=` | merged upstream |
-| `GET` | `/user/exercises?date=` | merged upstream |
-
-Default `/v20` наблюдается в открытом upstream PR и отвечает на публичные
-product GET-запросы. Это не официальный стабильный контракт; при регрессии
-можно временно задать `/v15` через `YAZIO_BASE_URL`.
-
-## Unsupported
-
-- `update_consumed_item`: подтверждённых `PUT/PATCH` не найдено;
-- нативные range endpoints: диапазоны реализованы bounded-перебором дат;
-- полная история веса: подтверждён только `/weight/last`;
-- create/update recipes: не подтверждены;
-- read/delete recipes: только в незамёрженном upstream PR, поэтому не exposed;
-- нативный barcode lookup: не найден; поиск EAN как текста не выдаётся за API;
-- гарантированная атомарность batch: YAZIO её не документирует;
-- безопасный atomic increment воды: API принимает cumulative total, поэтому
-  writers вне этого MCP-сервера или процессы с разными state path могут создать
-  lost update. Процессы nutrition-mcp с общим state path используют owner-aware
-  lock с heartbeat.
-
-## Ответы и ошибки
-
-Success:
+Successful tools return both text and structured data:
 
 ```json
 {
@@ -315,29 +308,56 @@ Success:
   "data": {},
   "meta": {
     "timezone": "Europe/Moscow",
-    "backend": "yazio-unofficial-v20",
+    "backend": "yazio-unofficial",
     "generated_at": "2026-07-30T00:00:00.000Z"
   }
 }
 ```
 
-Tool failure возвращается с `isError: true`:
+Failures set `isError: true` and use a machine-readable code:
 
 ```json
 {
   "ok": false,
   "error": {
     "code": "DUPLICATE_DETECTED",
-    "message": "Найдена вероятная дублирующая запись; запись не выполнена.",
+    "message": "A probable duplicate entry was found; nothing was written.",
     "retryable": false
   }
 }
 ```
 
-Password, access/refresh token, Authorization header, полный `/user` response и
-auth response body не попадают в ошибки или логи.
+For diary rows whose individual nutrition cannot be determined safely,
+`get_diary` exposes:
 
-## Разработка и проверки
+- `totals_complete`;
+- `totals_source` (`item_sum` or `daily_summary`);
+- `missing_nutrition_item_ids`.
+
+This prevents a partial item sum from being presented as a complete total.
+
+## Recipes and unsupported operations
+
+The adapter can read user recipe IDs and recipe details using
+community-observed endpoints. Recipe rows in the diary preserve `recipe_id`,
+and their names are enriched on a best-effort basis.
+
+The following operations are intentionally not exposed as successful MCP tools
+because their upstream contracts are not sufficiently confirmed:
+
+- adding a saved recipe portion to the diary;
+- creating, updating, or deleting recipes;
+- changing a recipe portion through `update_consumed_item`;
+- native `PATCH`/`PUT` of consumed items;
+- native date-range endpoints;
+- full weight history;
+- native barcode lookup;
+- guaranteed transactional meal batches.
+
+Recipe-row nutrients remain `null` when the upstream basis cannot be determined
+safely. Daily totals use the daily-summary endpoint instead.
+
+## Development
 
 ```bash
 npm run lint
@@ -345,67 +365,81 @@ npm run typecheck
 npm test
 npm run build
 npm run smoke
-npm audit --omit=dev --audit-level=high
 ```
 
-`npm run smoke` поднимает локальный mock YAZIO, запускает собранный сервер как
-дочерний stdio process и проверяет modern `2026-07-28` MRTR, подписанный
-`requestState`, legacy one-time-token fallback, tool schemas и
-`structuredContent`.
+Run all default checks:
 
-### Live-тесты
+```bash
+npm run check
+```
 
-Live-тесты выключены по умолчанию:
+The protocol smoke test starts a local mock YAZIO server, spawns the built MCP
+server over stdio, and validates:
+
+- modern MCP `2026-07-28` negotiation;
+- a real MRTR update/remove flow;
+- legacy one-time-token confirmation;
+- tool input/output schemas;
+- `structuredContent` and privacy filtering.
+
+### Live tests
+
+Live tests are opt-in:
 
 ```bash
 export YAZIO_LIVE_TEST=1
 export YAZIO_USERNAME='...'
 export YAZIO_PASSWORD='...'
-export YAZIO_CLIENT_ID='...'
-export YAZIO_CLIENT_SECRET='...'
-export YAZIO_LIVE_PRODUCT_ID='safe-product-uuid'
 npm run test:live
 ```
 
-Live write-test создаёт запись в `try` и удаляет тот же generated entry ID в
-`finally`, затем проверяет удаление. Если cleanup не подтверждён, тест падает.
-Не запускайте write-test на важной дате без резервной ручной проверки дневника.
+The live write test creates a minimal product entry and removes that exact
+generated UUID in `finally`. If cleanup cannot be confirmed, the test fails.
+Avoid running live writes on an important diary date without checking the
+result in the YAZIO app.
 
-## Privacy и security
+## Privacy and security
 
-- сервер предназначен для одного локального пользователя;
-- token/state files создаются атомарно и с POSIX mode `0600`; default-каталог
-  при первом создании получает `0700`, а права custom parent directory сервер
-  намеренно не изменяет;
-- на Windows mode bits не заменяют ACL — защитите каталог средствами ОС;
-- profile использует allowlist и не возвращает email, DOB, `user_token`,
-  Stripe ID или полный upstream object;
-- idempotency journal не хранит password/tokens;
-- одноразовые confirmation tokens хранятся только в виде SHA-256 digest;
-- изменившиеся успешные YAZIO payloads дают `UPSTREAM_INVALID_RESPONSE`, а не
-  правдоподобные нули;
-- range reads и product enrichment ограничены шестью параллельными запросами;
-- GET после `429` повторяется один раз с учётом `Retry-After`; mutations
-  автоматически не повторяются;
-- write retries не выполняются вслепую;
-- secrets не должны попадать в git, shell history, issue или screenshot;
-- после раскрытия password в любом чате/логе его следует сменить.
+- The server is designed for one local user, not as a hosted multi-user API.
+- User credentials are accepted only from environment variables.
+- Passwords, authorization headers, tokens, and full profile responses are not
+  written to logs or surfaced in tool errors.
+- Token and state files use atomic writes and POSIX mode `0600`; the default
+  directory is created with `0700`.
+- Windows users must protect the cache directory with Windows ACLs because
+  POSIX mode bits are not an ACL substitute.
+- The profile tool uses an explicit allowlist and excludes email, birth date,
+  payment identifiers, and upstream tokens.
+- One-time confirmation tokens are stored only as SHA-256 digests.
+- Write requests are not retried blindly after uncertain network failures.
 
-## MCP compatibility
+See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the current threat review.
 
-Монолитный `@modelcontextprotocol/sdk@1.30.0` остаётся v1 и поддерживает максимум
-протокол `2025-11-25`. Поэтому проект использует стабильные официальные split
-packages `@modelcontextprotocol/server@2.0.0` и
-`@modelcontextprotocol/client@2.0.0`, которые реализуют `2026-07-28`,
-`server/discover`, stateless request metadata и MRTR. `serveStdio` оставляет
-legacy shim включённым для существующих Claude/Hermes клиентов.
+## API and MCP compatibility
 
-Спецификация:
-[MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28),
-[changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog).
+The default `/v19` API base was selected from observed behavior. Newer-looking
+URL versions are not necessarily released API versions; YAZIO can block or
+change any of them without warning.
 
-## Происхождение
+The project uses the official split TypeScript SDK packages:
 
-Endpoint contracts и общая ориентация сверялись с upstream-референсами.
-Production-код написан заново и не импортирует их runtime. MIT attribution для
-`fliptheweb/yazio-mcp` сохранён в `THIRD_PARTY_NOTICES.md`.
+- `@modelcontextprotocol/server@2`;
+- `@modelcontextprotocol/client@2` for protocol tests.
+
+The server opts into MCP `2026-07-28` through `serveStdio` and keeps the legacy
+stdio compatibility shim enabled for existing clients.
+
+References:
+
+- [MCP specification 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28)
+- [MCP 2026-07-28 changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
+- [MCP TypeScript SDK migration guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration/support-2026-07-28.md)
+- [fliptheweb/yazio-mcp](https://github.com/fliptheweb/yazio-mcp)
+- [juriadams/yazio](https://github.com/juriadams/yazio)
+
+Implementation provenance and license notices are documented in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## License
+
+[MIT](LICENSE)

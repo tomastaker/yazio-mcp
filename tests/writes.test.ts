@@ -17,6 +17,11 @@ const nutrition = {
   energy_unit: 'kcal' as const,
   mass_unit: 'g' as const,
 };
+const diaryMetadata = {
+  totals_complete: true,
+  totals_source: 'item_sum' as const,
+  missing_nutrition_item_ids: [] as string[],
+};
 
 const backend = (): NutritionBackend => ({
   getUserProfile: vi.fn(),
@@ -38,9 +43,11 @@ const backend = (): NutritionBackend => ({
     eans: [],
     category: null,
   }),
+  listUserRecipeIds: vi.fn(),
+  getRecipe: vi.fn(),
   getDiary: vi
     .fn()
-    .mockResolvedValueOnce({ date: '2026-07-29', items: [], totals: nutrition })
+    .mockResolvedValueOnce({ date: '2026-07-29', items: [], totals: nutrition, ...diaryMetadata })
     .mockResolvedValue({
       date: '2026-07-29',
       items: [
@@ -50,6 +57,7 @@ const backend = (): NutritionBackend => ({
           daytime: 'breakfast',
           kind: 'product',
           product_id: PRODUCT_ID,
+          recipe_id: null,
           name: 'Fixture product',
           amount: 80,
           serving: null,
@@ -58,6 +66,7 @@ const backend = (): NutritionBackend => ({
         },
       ],
       totals: nutrition,
+      ...diaryMetadata,
     }),
   getDailySummary: vi.fn(),
   getWaterIntake: vi.fn(),
@@ -70,7 +79,7 @@ const backend = (): NutritionBackend => ({
 
 describe('WriteService', () => {
   it('replays a completed idempotent request without a second write', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-state-'));
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-state-'));
     const adapter = backend();
     const service = new WriteService(
       adapter,
@@ -95,7 +104,7 @@ describe('WriteService', () => {
   });
 
   it('detects a probable duplicate before writing', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-state-'));
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-state-'));
     const adapter = backend();
     vi.mocked(adapter.getDiary).mockReset();
     vi.mocked(adapter.getDiary).mockResolvedValue({
@@ -106,6 +115,7 @@ describe('WriteService', () => {
         daytime: item.daytime,
         kind: 'product',
         product_id: item.product_id,
+        recipe_id: null,
         name: 'Fixture product',
         amount: item.amount,
         serving: null,
@@ -113,6 +123,7 @@ describe('WriteService', () => {
         nutrition,
       })),
       totals: nutrition,
+      ...diaryMetadata,
     });
     const service = new WriteService(
       adapter,
@@ -134,11 +145,11 @@ describe('WriteService', () => {
   });
 
   it('does not repeat a successful write when verification read fails', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-state-'));
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-state-'));
     const adapter = backend();
     vi.mocked(adapter.getDiary)
       .mockReset()
-      .mockResolvedValueOnce({ date: '2026-07-29', items: [], totals: nutrition })
+      .mockResolvedValueOnce({ date: '2026-07-29', items: [], totals: nutrition, ...diaryMetadata })
       .mockRejectedValueOnce(new Error('verification unavailable'));
     const service = new WriteService(
       adapter,
@@ -163,9 +174,14 @@ describe('WriteService', () => {
   });
 
   it('compensates prior items and reports each item after a partial batch failure', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-state-'));
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-state-'));
     const adapter = backend();
-    vi.mocked(adapter.getDiary).mockResolvedValue({ date: '2026-07-29', items: [], totals: nutrition });
+    vi.mocked(adapter.getDiary).mockResolvedValue({
+      date: '2026-07-29',
+      items: [],
+      totals: nutrition,
+      ...diaryMetadata,
+    });
     vi.mocked(adapter.addConsumedItem)
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('fixture upstream failure'));
@@ -210,11 +226,11 @@ describe('WriteService', () => {
   });
 
   it('never treats a similar concurrent diary item as its own generated ID', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-state-'));
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-state-'));
     const adapter = backend();
     vi.mocked(adapter.getDiary)
       .mockReset()
-      .mockResolvedValueOnce({ date: '2026-07-29', items: [], totals: nutrition })
+      .mockResolvedValueOnce({ date: '2026-07-29', items: [], totals: nutrition, ...diaryMetadata })
       .mockResolvedValueOnce({
         date: '2026-07-29',
         items: [
@@ -224,6 +240,7 @@ describe('WriteService', () => {
             daytime: 'breakfast',
             kind: 'product',
             product_id: PRODUCT_ID,
+            recipe_id: null,
             name: 'Concurrent fixture',
             amount: 80,
             serving: null,
@@ -232,6 +249,7 @@ describe('WriteService', () => {
           },
         ],
         totals: nutrition,
+        ...diaryMetadata,
       });
     const service = new WriteService(
       adapter,
@@ -253,7 +271,7 @@ describe('WriteService', () => {
   });
 
   it('requires and consumes a one-time fallback confirmation token', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-state-'));
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-state-'));
     const adapter = backend();
     vi.mocked(adapter.getDiary).mockReset();
     vi.mocked(adapter.getDiary).mockResolvedValue({
@@ -264,6 +282,7 @@ describe('WriteService', () => {
         daytime: item.daytime,
         kind: 'product',
         product_id: item.product_id,
+        recipe_id: null,
         name: 'Fixture product',
         amount: item.amount,
         serving: null,
@@ -271,6 +290,7 @@ describe('WriteService', () => {
         nutrition,
       })),
       totals: nutrition,
+      ...diaryMetadata,
     });
     const store = new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope');
     const service = new WriteService(adapter, store, 'Europe/Moscow');
@@ -304,7 +324,7 @@ describe('WriteService', () => {
   });
 
   it('reports rollback_failed when the exact generated ID still exists', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'nutrition-mcp-state-'));
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-state-'));
     const adapter = backend();
     let generatedId = '';
     vi.mocked(adapter.addConsumedItem).mockImplementationOnce(async (input) => {
@@ -327,6 +347,7 @@ describe('WriteService', () => {
                   daytime: 'breakfast',
                   kind: 'product',
                   product_id: PRODUCT_ID,
+                  recipe_id: null,
                   name: 'Fixture product',
                   amount: 40,
                   serving: null,
@@ -335,6 +356,7 @@ describe('WriteService', () => {
                 },
               ],
         totals: nutrition,
+        ...diaryMetadata,
       };
     });
     const service = new WriteService(
