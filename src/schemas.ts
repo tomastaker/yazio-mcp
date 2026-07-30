@@ -1,0 +1,466 @@
+import { DateTime } from 'luxon';
+import { z } from 'zod';
+import { errorCodeSchema } from './errors.js';
+
+const validIsoDate = (value: string): boolean =>
+  DateTime.fromISO(value, { zone: 'utc' }).isValid && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+export const isoDateSchema = z.string().refine(validIsoDate, 'Ожидается существующая дата YYYY-MM-DD');
+export const uuidSchema = z.uuid();
+export const mealTypeSchema = z.enum(['breakfast', 'lunch', 'dinner', 'snack']);
+
+export const nutritionSchema = z.object({
+  calories: z.number().finite().nonnegative(),
+  protein: z.number().finite().nonnegative(),
+  fat: z.number().finite().nonnegative(),
+  carbs: z.number().finite().nonnegative(),
+  fiber: z.number().finite().nonnegative(),
+  sugar: z.number().finite().nonnegative(),
+  energy_unit: z.literal('kcal'),
+  mass_unit: z.literal('g'),
+});
+
+export const dateRangeSchema = z
+  .object({
+    start_date: isoDateSchema,
+    end_date: isoDateSchema,
+  })
+  .strict()
+  .refine(({ start_date, end_date }) => start_date <= end_date, {
+    message: 'start_date не может быть позже end_date',
+    path: ['end_date'],
+  });
+
+export const dateOrRangeInputSchema = z
+  .object({
+    date: isoDateSchema.optional(),
+    start_date: isoDateSchema.optional(),
+    end_date: isoDateSchema.optional(),
+  })
+  .strict()
+  .superRefine(({ date, start_date, end_date }, context) => {
+    if (date !== undefined && (start_date !== undefined || end_date !== undefined)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Укажите date либо start_date/end_date, но не оба варианта',
+      });
+    }
+    if ((start_date === undefined) !== (end_date === undefined)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'start_date и end_date должны быть указаны вместе',
+      });
+    }
+    if (start_date !== undefined && end_date !== undefined && start_date > end_date) {
+      context.addIssue({
+        code: 'custom',
+        path: ['end_date'],
+        message: 'start_date не может быть позже end_date',
+      });
+    }
+  });
+
+export const searchProductsInputSchema = z
+  .object({
+    query: z.string().trim().min(1).max(200),
+    countries: z.array(z.string().regex(/^[A-Z]{2}$/)).min(1).max(10).optional(),
+    locales: z.array(z.string().regex(/^[a-z]{2}_[A-Z]{2}$/)).min(1).max(10).optional(),
+    sex: z.enum(['male', 'female']).optional(),
+    limit: z.number().int().min(1).max(50).default(20),
+  })
+  .strict();
+
+export const getProductInputSchema = z.object({ product_id: uuidSchema }).strict();
+export const getGoalsInputSchema = z.object({ date: isoDateSchema.optional() }).strict();
+export const getDateInputSchema = z.object({ date: isoDateSchema.optional() }).strict();
+
+const writeCommonSchema = z
+  .object({
+    client_request_id: z.string().trim().min(8).max(128),
+    dry_run: z.boolean().default(true),
+  })
+  .strict();
+
+export const consumedItemFieldsSchema = z
+  .object({
+    product_id: uuidSchema,
+    date: isoDateSchema,
+    daytime: mealTypeSchema,
+    amount: z.number().finite().positive().max(100_000),
+    serving: z.string().trim().min(1).max(100).nullable().optional(),
+    serving_quantity: z.number().finite().positive().max(10_000).nullable().optional(),
+  })
+  .strict()
+  .superRefine(({ serving, serving_quantity }, context) => {
+    if ((serving == null) !== (serving_quantity == null)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'serving и serving_quantity должны быть заданы вместе либо оба отсутствовать',
+      });
+    }
+  });
+
+export const addConsumedItemInputSchema = writeCommonSchema.extend(consumedItemFieldsSchema.shape);
+
+export const addMealBatchInputSchema = writeCommonSchema.extend({
+  items: z.array(consumedItemFieldsSchema).min(1).max(25),
+});
+
+export const removeConsumedItemInputSchema = writeCommonSchema.extend({
+  item_id: uuidSchema,
+  date: isoDateSchema,
+  confirmation_token: z.string().min(32).max(256).optional(),
+});
+
+export const addWaterInputSchema = writeCommonSchema.extend({
+  date: isoDateSchema,
+  amount_ml: z.number().int().positive().max(20_000),
+});
+
+export const trendsInputSchema = dateRangeSchema.extend({
+  aggregation: z.enum(['day', 'week', 'month']).default('day'),
+});
+
+export const comparePeriodsInputSchema = z
+  .object({
+    first_start_date: isoDateSchema,
+    first_end_date: isoDateSchema,
+    second_start_date: isoDateSchema,
+    second_end_date: isoDateSchema,
+  })
+  .strict();
+
+export const missingMealsInputSchema = dateRangeSchema.extend({
+  meals: z.array(mealTypeSchema).min(1).max(4).default(['breakfast', 'lunch', 'dinner']),
+  maximum_recorded_calories: z.number().finite().nonnegative().max(500).default(50),
+});
+
+export const toolErrorSchema = z.object({
+  ok: z.literal(false),
+  error: z.object({
+    code: errorCodeSchema,
+    message: z.string(),
+    retryable: z.boolean(),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }),
+});
+
+export const resultMetaSchema = z.object({
+  timezone: z.string(),
+  backend: z.string(),
+  generated_at: z.string(),
+});
+
+const errorDetailSchema = z.object({
+      code: errorCodeSchema,
+      message: z.string(),
+      retryable: z.boolean(),
+      details: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const outputEnvelopeSchema = z.discriminatedUnion('ok', [
+  z.object({
+    ok: z.literal(true),
+    data: z.unknown(),
+    meta: resultMetaSchema,
+  }),
+  z.object({
+    ok: z.literal(false),
+    error: errorDetailSchema,
+  }),
+]);
+
+export const toolOutputSchema = <T extends z.ZodType>(dataSchema: T) =>
+  z.discriminatedUnion('ok', [
+    z.object({
+      ok: z.literal(true),
+      data: dataSchema,
+      meta: resultMetaSchema,
+    }),
+    z.object({
+      ok: z.literal(false),
+      error: errorDetailSchema,
+    }),
+  ]);
+
+export const userProfileOutputSchema = z.object({
+  user_id: z.string(),
+  first_name: z.string().nullable(),
+  sex: z.string().nullable(),
+  country: z.string().nullable(),
+  goal: z.string().nullable(),
+  diet: z.string().nullable(),
+  unit_energy: z.string().nullable(),
+  unit_mass: z.string().nullable(),
+});
+
+export const goalsOutputSchema = z.object({
+  date: isoDateSchema,
+  nutrition: nutritionSchema,
+  water_ml: z.number().nonnegative(),
+  steps: z.number().nonnegative(),
+  weight_kg: z.number().nullable(),
+});
+
+export const productOutputSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  producer: z.string().nullable(),
+  base_unit: z.string(),
+  serving: z.string().nullable(),
+  serving_quantity: z.number().nullable(),
+  amount: z.number(),
+  is_verified: z.boolean(),
+  countries: z.array(z.string()),
+  language: z.string(),
+  nutrition: nutritionSchema,
+});
+
+export const productDetailsOutputSchema = productOutputSchema.extend({
+  servings: z.array(z.object({ serving: z.string(), amount: z.number() })),
+  eans: z.array(z.string()),
+  category: z.string().nullable(),
+});
+
+export const diaryItemOutputSchema = z.object({
+  id: z.string(),
+  date: isoDateSchema,
+  daytime: mealTypeSchema,
+  kind: z.enum(['product', 'recipe_portion', 'simple_product']),
+  product_id: z.string().nullable(),
+  name: z.string().nullable(),
+  amount: z.number(),
+  serving: z.string().nullable(),
+  serving_quantity: z.number().nullable(),
+  nutrition: nutritionSchema.nullable(),
+});
+
+export const diaryDayOutputSchema = z.object({
+  date: isoDateSchema,
+  items: z.array(diaryItemOutputSchema),
+  totals: nutritionSchema,
+});
+
+export const dailySummaryOutputSchema = z.object({
+  date: isoDateSchema,
+  nutrition: nutritionSchema,
+  goal: nutritionSchema,
+  water_ml: z.number().nonnegative(),
+  activity_calories: z.number(),
+  steps: z.number().nonnegative(),
+  meals: z.object({
+    breakfast: nutritionSchema,
+    lunch: nutritionSchema,
+    dinner: nutritionSchema,
+    snack: nutritionSchema,
+  }),
+});
+
+export const waterOutputSchema = z.object({
+  date: isoDateSchema,
+  water_ml: z.number().nonnegative(),
+});
+
+export const weightOutputSchema = z.object({
+  id: z.string(),
+  date: isoDateSchema,
+  weight_kg: z.number().nullable(),
+});
+
+export const exerciseOutputSchema = z.object({
+  id: z.string(),
+  date: isoDateSchema,
+  name: z.string(),
+  calories: z.number(),
+  duration_seconds: z.number(),
+  distance_meters: z.number(),
+  steps: z.number(),
+});
+
+const consumedPreviewSchema = z
+  .object({
+    action: z.literal('add_consumed_item'),
+    product_id: z.string(),
+    product_name: z.string(),
+    date: isoDateSchema,
+    daytime: mealTypeSchema,
+    amount: z.number().positive(),
+    base_unit: z.string(),
+    serving: z.string().nullable(),
+    serving_quantity: z.number().nullable(),
+    estimated_nutrition: nutritionSchema,
+  })
+  .strict();
+
+export const addConsumedItemOutputSchema = z
+  .object({
+    status: z.enum(['dry_run', 'applied', 'applied_unverified']),
+    preview: consumedPreviewSchema,
+    entry_id: z.string().nullable(),
+    duplicate_check: z.literal('clear'),
+    verified: z.boolean(),
+  })
+  .strict();
+
+export const batchItemOutputSchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    entry_id: z.string().nullable(),
+    status: z.enum([
+      'applied',
+      'applied_unverified',
+      'failed',
+      'not_attempted',
+      'rolled_back',
+      'rollback_failed',
+      'uncertain',
+    ]),
+    message: z.string().optional(),
+  })
+  .strict();
+
+export const batchOutputSchema = z
+  .object({
+    status: z.enum(['dry_run', 'applied', 'rolled_back', 'partial_failure']),
+    items: z.array(batchItemOutputSchema),
+    preview: z.array(consumedPreviewSchema),
+  })
+  .strict();
+
+const removalPreviewSchema = z
+  .object({
+    action: z.literal('remove_consumed_item'),
+    item: diaryItemOutputSchema,
+  })
+  .strict();
+
+export const removeConsumedItemOutputSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      status: z.literal('dry_run'),
+      preview: removalPreviewSchema.extend({
+        confirmation_token: z.string(),
+        confirmation_expires_at: z.iso.datetime(),
+      }),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.enum(['removed', 'removed_unverified']),
+      preview: removalPreviewSchema,
+      verified: z.boolean(),
+    })
+    .strict(),
+]);
+
+const waterPreviewSchema = z
+  .object({
+    action: z.literal('add_water_intake'),
+    date: isoDateSchema,
+    previous_ml: z.number().nonnegative(),
+    amount_ml: z.number().positive(),
+    resulting_cumulative_ml: z.number().nonnegative(),
+  })
+  .strict();
+
+export const addWaterOutputSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      status: z.literal('dry_run'),
+      preview: waterPreviewSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.enum(['applied', 'applied_unverified']),
+      preview: waterPreviewSchema,
+      verified: z.boolean(),
+      water: waterOutputSchema,
+    })
+    .strict(),
+]);
+
+const goalComparisonSchema = z
+  .object({
+    calories_percent: z.number().nullable(),
+    protein_percent: z.number().nullable(),
+    fat_percent: z.number().nullable(),
+    carbs_percent: z.number().nullable(),
+  })
+  .strict();
+
+const stabilitySchema = z
+  .object({
+    calories_coefficient_of_variation: z.number(),
+    mean_absolute_calorie_deviation: z.number(),
+  })
+  .strict();
+
+const trendPeriodSchema = z
+  .object({
+    period: z.string(),
+    days: z.number().int().nonnegative(),
+    average: nutritionSchema,
+  })
+  .strict();
+
+export const coverageSchema = z
+  .object({
+    requested_days: z.number().int().nonnegative(),
+    successful_days: z.number().int().nonnegative(),
+    failed_dates: z.array(isoDateSchema),
+  })
+  .strict();
+
+export const trendsOutputSchema = z
+  .object({
+    aggregation: z.enum(['day', 'week', 'month']),
+    days: z.number().int().nonnegative(),
+    average: nutritionSchema,
+    goal_average: nutritionSchema,
+    goal_comparison: goalComparisonSchema,
+    stability: stabilitySchema,
+    periods: z.array(trendPeriodSchema),
+    coverage: coverageSchema,
+    partial: z.boolean(),
+  })
+  .strict();
+
+const changePercentSchema = z
+  .object({
+    calories: z.number().nullable(),
+    protein: z.number().nullable(),
+    fat: z.number().nullable(),
+    carbs: z.number().nullable(),
+    fiber: z.number().nullable(),
+    sugar: z.number().nullable(),
+  })
+  .strict();
+
+export const comparePeriodsOutputSchema = z
+  .object({
+    first: trendsOutputSchema,
+    second: trendsOutputSchema,
+    change_percent: changePercentSchema,
+    partial: z.boolean(),
+  })
+  .strict();
+
+export const missingMealFindingOutputSchema = z
+  .object({
+    date: isoDateSchema,
+    meal: mealTypeSchema,
+    recorded_calories: z.number().nonnegative(),
+    reason: z.string(),
+    confidence: z.enum(['low', 'medium']),
+  })
+  .strict();
+
+export const missingMealsOutputSchema = z
+  .object({
+    findings: z.array(missingMealFindingOutputSchema),
+    auto_write_performed: z.literal(false),
+    coverage: coverageSchema,
+    partial: z.boolean(),
+  })
+  .strict();

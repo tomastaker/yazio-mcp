@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.env
+*.log
+.nutrition-mcp/
+*.token.json
+*.state.json

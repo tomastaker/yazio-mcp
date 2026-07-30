@@ -1,0 +1,46 @@
+{
+  "name": "nutrition-mcp",
+  "version": "0.1.0",
+  "description": "Local stdio MCP server for personal nutrition tracking through the unofficial YAZIO API",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "nutrition-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    ".env.example"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:live": "YAZIO_LIVE_TEST=1 vitest run tests/live",
+    "smoke": "node scripts/mcp-smoke.mjs",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run smoke"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "luxon": "3.7.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/luxon": "3.7.2",
+    "@types/node": "20.19.24",
+    "eslint": "10.0.1",
+    "globals": "16.5.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.0"
+  }
+}
