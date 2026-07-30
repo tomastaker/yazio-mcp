@@ -113,7 +113,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
         if (existing.fingerprint !== requestFingerprint) {
           throw new NutritionMcpError(
             'IDEMPOTENCY_CONFLICT',
-            'client_request_id уже использован с другими параметрами.',
+            'client_request_id has already been used with different parameters.',
           );
         }
         if (existing.status === 'completed') {
@@ -122,7 +122,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
         if (existing.status === 'pending') {
           throw new NutritionMcpError(
             'IDEMPOTENCY_UNCERTAIN',
-            'Предыдущая операция с этим client_request_id имеет неопределённый итог; повторная запись заблокирована.',
+            'The previous operation with this client_request_id has an uncertain outcome; another write is blocked.',
           );
         }
       }
@@ -142,7 +142,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
       const key = this.key(tool, requestId);
       const existing = state.requests[key];
       if (existing === undefined) {
-        throw new NutritionMcpError('INTERNAL_ERROR', 'Idempotency journal entry отсутствует.');
+        throw new NutritionMcpError('INTERNAL_ERROR', 'The idempotency journal entry is missing.');
       }
       state.requests[key] = {
         ...existing,
@@ -291,7 +291,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
     }
     throw new NutritionMcpError(
       'CONFIG_ERROR',
-      'Не удалось получить lock для idempotency journal.',
+      'Unable to acquire the idempotency journal lock.',
       { retryable: true },
     );
   }
@@ -365,7 +365,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
     try {
       const parsed = stateSchema.safeParse(JSON.parse(await readFile(this.path, 'utf8')));
       if (!parsed.success) {
-        throw new NutritionMcpError('CONFIG_ERROR', 'Idempotency state повреждён.');
+        throw new NutritionMcpError('CONFIG_ERROR', 'The idempotency state is corrupted.');
       }
       return parsed.data;
     } catch (error) {
@@ -373,7 +373,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
         return { version: 1, requests: {} };
       }
       if (error instanceof SyntaxError) {
-        throw new NutritionMcpError('CONFIG_ERROR', 'Idempotency state содержит невалидный JSON.');
+        throw new NutritionMcpError('CONFIG_ERROR', 'The idempotency state contains invalid JSON.');
       }
       throw error;
     }
@@ -401,7 +401,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
     } catch (error) {
       await handle?.close().catch(() => undefined);
       await unlink(temporaryPath).catch(() => undefined);
-      throw new NutritionMcpError('CONFIG_ERROR', 'Не удалось записать idempotency state.', {
+      throw new NutritionMcpError('CONFIG_ERROR', 'Unable to write the idempotency state.', {
         cause: error,
       });
     }
@@ -410,7 +410,7 @@ export class FileIdempotencyStore implements IdempotencyStore {
   private async rejectSymlink(): Promise<void> {
     try {
       if ((await lstat(this.path)).isSymbolicLink()) {
-        throw new NutritionMcpError('CONFIG_ERROR', 'State file не может быть символической ссылкой.');
+        throw new NutritionMcpError('CONFIG_ERROR', 'The state file must not be a symbolic link.');
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;

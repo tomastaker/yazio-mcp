@@ -24,7 +24,7 @@ const environmentSchema = z
       .min(1)
       .refine(
         (value) => DateTime.now().setZone(value).isValid,
-        'Ожидается существующая IANA timezone',
+        'Expected a valid IANA time zone',
       )
       .optional(),
     NUTRITION_MCP_TIMEZONE: z
@@ -32,11 +32,11 @@ const environmentSchema = z
       .min(1)
       .refine(
         (value) => DateTime.now().setZone(value).isValid,
-        'Ожидается существующая IANA timezone',
+        'Expected a valid IANA time zone',
       )
       .optional(),
-    YAZIO_PRODUCT_COUNTRIES: z.string().default('RU'),
-    YAZIO_PRODUCT_LOCALES: z.string().default('ru_RU'),
+    YAZIO_PRODUCT_COUNTRIES: z.string().default('US'),
+    YAZIO_PRODUCT_LOCALES: z.string().default('en_US'),
     YAZIO_DEFAULT_SEX: z.enum(['male', 'female']).default('male'),
     YAZIO_HTTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),
   })
@@ -47,7 +47,7 @@ const environmentSchema = z
       context.addIssue({
         code: 'custom',
         path: [hasClientId ? 'YAZIO_CLIENT_SECRET' : 'YAZIO_CLIENT_ID'],
-        message: 'OAuth client override требует одновременно client ID и client secret',
+        message: 'OAuth client override requires both client ID and client secret',
       });
     }
     for (const [current, legacy] of [
@@ -62,7 +62,7 @@ const environmentSchema = z
         context.addIssue({
           code: 'custom',
           path: [current],
-          message: `${current} конфликтует с deprecated alias ${legacy}`,
+          message: `${current} conflicts with deprecated alias ${legacy}`,
         });
       }
     }
@@ -92,7 +92,7 @@ const splitList = (value: string): string[] =>
 export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppConfig => {
   const parsed = environmentSchema.safeParse(environment);
   if (!parsed.success) {
-    throw new NutritionMcpError('CONFIG_ERROR', 'Некорректная конфигурация environment variables.', {
+    throw new NutritionMcpError('CONFIG_ERROR', 'Invalid environment variable configuration.', {
       details: {
         variables: parsed.error.issues.map((issue) => String(issue.path[0] ?? 'unknown')),
       },
@@ -119,7 +119,7 @@ export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppCon
     timezone:
       parsed.data.YAZIO_MCP_TIMEZONE ??
       parsed.data.NUTRITION_MCP_TIMEZONE ??
-      'Europe/Moscow',
+      'UTC',
     countries: splitList(parsed.data.YAZIO_PRODUCT_COUNTRIES),
     locales: splitList(parsed.data.YAZIO_PRODUCT_LOCALES),
     defaultSex: parsed.data.YAZIO_DEFAULT_SEX,

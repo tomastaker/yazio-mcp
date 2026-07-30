@@ -64,7 +64,7 @@ export const toPublicError = (
   if (error instanceof z.ZodError) {
     return {
       code: 'VALIDATION_ERROR',
-      message: 'Входные данные не прошли проверку.',
+      message: 'Input validation failed.',
       retryable: false,
       details: {
         issues: error.issues.map(({ path, message, code }) => ({ path, message, code })),
@@ -73,7 +73,7 @@ export const toPublicError = (
   }
   return {
     code: 'INTERNAL_ERROR',
-    message: 'Внутренняя ошибка сервера.',
+    message: 'Internal server error.',
     retryable: false,
   };
 };

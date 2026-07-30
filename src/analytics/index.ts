@@ -182,7 +182,7 @@ export const detectMissingMeals = (
         date: summary.date,
         meal,
         recorded_calories: round(summary.meals[meal].calories),
-        reason: `Записано не более ${maximumRecordedCalories} ккал; это может быть пропуском учёта, но не доказывает отсутствие еды.`,
+        reason: `No more than ${maximumRecordedCalories} kcal was recorded; this may indicate missing logging but does not prove that no food was eaten.`,
         confidence: summary.meals[meal].calories === 0 ? ('medium' as const) : ('low' as const),
       })),
   );

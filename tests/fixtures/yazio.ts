@@ -10,7 +10,7 @@ export const ITEM_ID = '22222222-2222-4222-8222-222222222222';
 
 export const PRODUCT_FIXTURE = {
   id: PRODUCT_ID,
-  name: 'Овсяные хлопья',
+  name: 'Rolled oats',
   producer: 'Fixture Foods',
   base_unit: 'g',
   nutrients: {
@@ -24,7 +24,7 @@ export const PRODUCT_FIXTURE = {
   servings: [{ serving: 'portion', amount: 40 }],
   eans: [],
   language: 'ru',
-  countries: ['RU'],
+  countries: ['US'],
   is_verified: true,
   is_private: false,
   is_deleted: false,

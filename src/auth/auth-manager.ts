@@ -92,7 +92,7 @@ export class AuthManager implements AccessTokenProvider {
     if (!this.config.username || !this.config.password) {
       throw new NutritionMcpError(
         'AUTH_REQUIRED',
-        'Нужны YAZIO_USERNAME и YAZIO_PASSWORD: refresh token отсутствует или отклонён.',
+        'YAZIO_USERNAME and YAZIO_PASSWORD are required because the refresh token is missing or was rejected.',
       );
     }
     return this.requestToken({
@@ -116,7 +116,7 @@ export class AuthManager implements AccessTokenProvider {
         signal: AbortSignal.timeout(this.config.timeoutMs ?? 15_000),
       });
     } catch (error) {
-      throw new NutritionMcpError('AUTH_FAILED', 'Сетевой сбой авторизации YAZIO.', {
+      throw new NutritionMcpError('AUTH_FAILED', 'The YAZIO authentication request failed.', {
         retryable: true,
         cause: error,
       });
@@ -134,7 +134,7 @@ export class AuthManager implements AccessTokenProvider {
       }
       throw new NutritionMcpError(
         response.status === 401 || response.status === 400 ? 'AUTH_FAILED' : 'UPSTREAM_ERROR',
-        'YAZIO отклонил запрос авторизации.',
+        'YAZIO rejected the authentication request.',
         {
           retryable: response.status >= 500,
           ...(reason === undefined ? {} : { details: { reason } }),
@@ -145,13 +145,13 @@ export class AuthManager implements AccessTokenProvider {
     try {
       json = await response.json();
     } catch (error) {
-      throw new NutritionMcpError('UPSTREAM_INVALID_RESPONSE', 'YAZIO вернул невалидный OAuth JSON.', {
+      throw new NutritionMcpError('UPSTREAM_INVALID_RESPONSE', 'YAZIO returned invalid OAuth JSON.', {
         cause: error,
       });
     }
     const parsed = oauthResponseSchema.safeParse(json);
     if (!parsed.success) {
-      throw new NutritionMcpError('UPSTREAM_INVALID_RESPONSE', 'YAZIO вернул неполный OAuth token.');
+      throw new NutritionMcpError('UPSTREAM_INVALID_RESPONSE', 'YAZIO returned an incomplete OAuth token.');
     }
     const accountBinding = authAccountBinding(this.config);
     const token: StoredToken = {

@@ -46,7 +46,7 @@ const product = {
   serving_quantity: null,
   amount: 100,
   is_verified: true,
-  countries: ['RU'],
+  countries: ['US'],
   language: 'ru',
   nutrition,
   servings: [],
@@ -121,7 +121,7 @@ const createService = async (backend: NutritionBackend): Promise<WriteService> =
   return new WriteService(
     backend,
     new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope'),
-    'Europe/Moscow',
+    'UTC',
   );
 };
 

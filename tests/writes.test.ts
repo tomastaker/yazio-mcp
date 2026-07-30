@@ -36,7 +36,7 @@ const backend = (): NutritionBackend => ({
     serving_quantity: null,
     amount: 100,
     is_verified: true,
-    countries: ['RU'],
+    countries: ['US'],
     language: 'ru',
     nutrition,
     servings: [],
@@ -84,7 +84,7 @@ describe('WriteService', () => {
     const service = new WriteService(
       adapter,
       new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope'),
-      'Europe/Moscow',
+      'UTC',
     );
     const input = {
       client_request_id: 'request-idempotency-1',
@@ -128,7 +128,7 @@ describe('WriteService', () => {
     const service = new WriteService(
       adapter,
       new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope'),
-      'Europe/Moscow',
+      'UTC',
     );
 
     await expect(
@@ -154,7 +154,7 @@ describe('WriteService', () => {
     const service = new WriteService(
       adapter,
       new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope'),
-      'Europe/Moscow',
+      'UTC',
     );
     const input = {
       client_request_id: 'request-unverified-1',
@@ -188,7 +188,7 @@ describe('WriteService', () => {
     const service = new WriteService(
       adapter,
       new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope'),
-      'Europe/Moscow',
+      'UTC',
     );
 
     const result = await service.addMealBatch({
@@ -254,7 +254,7 @@ describe('WriteService', () => {
     const service = new WriteService(
       adapter,
       new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope'),
-      'Europe/Moscow',
+      'UTC',
     );
 
     const result = await service.addConsumedItem({
@@ -293,7 +293,7 @@ describe('WriteService', () => {
       ...diaryMetadata,
     });
     const store = new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope');
-    const service = new WriteService(adapter, store, 'Europe/Moscow');
+    const service = new WriteService(adapter, store, 'UTC');
     const common = {
       client_request_id: 'request-remove-token-1',
       item_id: ITEM_ID,
@@ -362,7 +362,7 @@ describe('WriteService', () => {
     const service = new WriteService(
       adapter,
       new FileIdempotencyStore(join(directory, 'state.json'), 'fixture-scope'),
-      'Europe/Moscow',
+      'UTC',
     );
 
     const result = await service.addMealBatch({

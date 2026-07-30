@@ -52,7 +52,7 @@ describe.skipIf(!liveEnabled)('YAZIO live integration', () => {
       process.env.YAZIO_LIVE_PRODUCT_ID ??
       (
         await adapter.searchProducts({
-          query: process.env.YAZIO_LIVE_PRODUCT_QUERY ?? 'яблоко',
+          query: process.env.YAZIO_LIVE_PRODUCT_QUERY ?? 'apple',
           limit: 1,
         })
       )[0]?.id;

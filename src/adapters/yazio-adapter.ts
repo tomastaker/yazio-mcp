@@ -578,7 +578,7 @@ export class YazioAdapter implements NutritionBackend {
         }),
       );
     } catch (error) {
-      throw new NutritionMcpError('UPSTREAM_ERROR', 'Сетевой запрос к YAZIO не выполнен.', {
+      throw new NutritionMcpError('UPSTREAM_ERROR', 'The YAZIO network request failed.', {
         retryable: true,
         cause: error,
       });
@@ -605,7 +605,7 @@ export class YazioAdapter implements NutritionBackend {
             : response.status === 429
               ? 'UPSTREAM_RATE_LIMITED'
               : 'UPSTREAM_ERROR';
-      throw new NutritionMcpError(code, `YAZIO API вернул HTTP ${response.status}.`, {
+      throw new NutritionMcpError(code, `The YAZIO API returned HTTP ${response.status}.`, {
         retryable: response.status === 429 || response.status >= 500,
         details: { status: response.status },
       });
@@ -614,7 +614,7 @@ export class YazioAdapter implements NutritionBackend {
     try {
       return await response.json();
     } catch (error) {
-      throw new NutritionMcpError('UPSTREAM_INVALID_RESPONSE', 'YAZIO вернул невалидный JSON.', {
+      throw new NutritionMcpError('UPSTREAM_INVALID_RESPONSE', 'YAZIO returned invalid JSON.', {
         cause: error,
       });
     }
@@ -629,7 +629,7 @@ export class YazioAdapter implements NutritionBackend {
     if (!parsed.success) {
       throw new NutritionMcpError(
         'UPSTREAM_INVALID_RESPONSE',
-        'Формат ответа YAZIO не соответствует ожидаемому контракту.',
+        'The YAZIO response does not match the expected contract.',
         {
           details: {
             endpoint,

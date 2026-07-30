@@ -24,8 +24,9 @@ Codex, Hermes Agent и других MCP-клиентов.
 
 ## Возможности
 
-- Текстовый поиск по базе продуктов YAZIO с российскими настройками по
-  умолчанию (`RU`, `ru_RU`).
+- Текстовый поиск по базе продуктов YAZIO с международными английскими
+  настройками по умолчанию (`US`, `en_US`) и возможностью выбрать любую
+  поддерживаемую страну и локаль.
 - Чтение завтрака, обеда, ужина и перекусов за дату или диапазон.
 - Калории, белки, жиры, углеводы, клетчатка, сахар, вода, вес, цели и тренировки.
 - Добавление отдельного продукта или пакета позиций с компенсацией при ошибке.
@@ -161,13 +162,20 @@ MIT-лицензированном
 | `YAZIO_BASE_URL` | `https://yzapi.yazio.com/v19` | Доверенная локальная настройка API |
 | `YAZIO_TOKEN_CACHE_PATH` | `~/.yazio-mcp/token.json` | Cache access/refresh token |
 | `YAZIO_MCP_STATE_PATH` | `~/.yazio-mcp/state.json` | Idempotency и confirmation state |
-| `YAZIO_MCP_TIMEZONE` | `Europe/Moscow` | IANA timezone для дат |
-| `YAZIO_PRODUCT_COUNTRIES` | `RU` | Страны поиска через запятую |
-| `YAZIO_PRODUCT_LOCALES` | `ru_RU` | Локали поиска через запятую |
+| `YAZIO_MCP_TIMEZONE` | `UTC` | IANA timezone для дат |
+| `YAZIO_PRODUCT_COUNTRIES` | `US` | Страны поиска через запятую |
+| `YAZIO_PRODUCT_LOCALES` | `en_US` | Локали поиска через запятую |
 | `YAZIO_DEFAULT_SEX` | `male` | Параметр поиска upstream API |
 | `YAZIO_HTTP_TIMEOUT_MS` | `15000` | HTTP timeout от 1 000 до 120 000 мс |
 | `YAZIO_CLIENT_ID` | встроен | Парный advanced override |
 | `YAZIO_CLIENT_SECRET` | встроен | Парный advanced override |
+
+Страна, локаль и timezone настраиваются независимо. Например, для Германии
+можно указать `YAZIO_PRODUCT_COUNTRIES=DE`,
+`YAZIO_PRODUCT_LOCALES=de_DE` и
+`YAZIO_MCP_TIMEZONE=Europe/Berlin`. Для поиска можно задать несколько значений
+через запятую; аргументы `countries` и `locales` конкретного tool call имеют
+приоритет над этими настройками по умолчанию.
 
 Старые `NUTRITION_MCP_STATE_PATH` и `NUTRITION_MCP_TIMEZONE` временно
 поддерживаются как migration aliases. Конфликтующие старые и новые значения
@@ -272,7 +280,7 @@ mcp_servers:
     env:
       YAZIO_USERNAME: "set-locally"
       YAZIO_PASSWORD: "set-locally"
-      YAZIO_MCP_TIMEZONE: "Europe/Moscow"
+      YAZIO_MCP_TIMEZONE: "UTC"
     timeout: 90
     connect_timeout: 15
     supports_parallel_tool_calls: false
@@ -285,7 +293,7 @@ mcp_servers:
 ## Примеры запросов
 
 ```text
-Найди Snickers в российской базе YAZIO и покажи лучшие совпадения.
+Найди Snickers в базе продуктов YAZIO и покажи лучшие совпадения.
 
 Покажи всё, что сегодня добавлено в завтрак, обед, ужин и перекусы.
 
@@ -310,7 +318,7 @@ preview и только после этого сделать запись.
   "ok": true,
   "data": {},
   "meta": {
-    "timezone": "Europe/Moscow",
+    "timezone": "UTC",
     "backend": "yazio-unofficial",
     "generated_at": "2026-07-30T00:00:00.000Z"
   }
@@ -324,7 +332,7 @@ preview и только после этого сделать запись.
   "ok": false,
   "error": {
     "code": "DUPLICATE_DETECTED",
-    "message": "Найдена вероятная дублирующая запись; запись не выполнена.",
+    "message": "A probable duplicate entry was found; nothing was written.",
     "retryable": false
   }
 }

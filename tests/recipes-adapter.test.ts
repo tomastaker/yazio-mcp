@@ -11,8 +11,8 @@ const adapterWith = (fetchImplementation: typeof fetch): YazioAdapter =>
   new YazioAdapter(
     {
       baseUrl: 'https://yzapi.yazio.com/v19',
-      countries: ['RU'],
-      locales: ['ru_RU'],
+      countries: ['US'],
+      locales: ['en_US'],
       defaultSex: 'male',
       timeoutMs: 1_000,
     },

@@ -181,7 +181,7 @@ export class WriteService {
         if (batchKeys.has(key)) {
           throw new NutritionMcpError(
             'DUPLICATE_DETECTED',
-            'Batch содержит одинаковые позиции; запись не выполнена.',
+            'The batch contains duplicate items; nothing was written.',
           );
         }
         batchKeys.add(key);
@@ -226,7 +226,7 @@ export class WriteService {
           index,
           entry_id: id,
           status: 'failed',
-          message: 'YAZIO отклонил элемент; чувствительные детали upstream скрыты.',
+          message: 'YAZIO rejected the item; sensitive upstream details were redacted.',
         });
         if (error instanceof NutritionMcpError && error.retryable) {
           try {
@@ -239,7 +239,7 @@ export class WriteService {
             if (failedResult !== undefined) {
               failedResult.status = 'uncertain';
               failedResult.message =
-                'Итог записи и возможность безопасной компенсации не подтверждены.';
+                'The write outcome and the ability to compensate safely could not be confirmed.';
             }
           }
         }
@@ -252,7 +252,7 @@ export class WriteService {
         index,
         entry_id: null,
         status: 'not_attempted',
-        message: 'Элемент пропущен из-за ошибки предыдущего элемента.',
+        message: 'The item was skipped because a previous item failed.',
       });
     }
 
@@ -277,7 +277,7 @@ export class WriteService {
               delete itemResult.message;
             } else {
               itemResult.message =
-                'Удаление подтверждено повторным чтением после ошибки DELETE.';
+                'Removal was confirmed by rereading the diary after the DELETE error.';
             }
           } else {
             status = 'partial_failure';
@@ -367,7 +367,7 @@ export class WriteService {
       await this.idempotency.fail('update_consumed_item', input.client_request_id);
       throw new NutritionMcpError(
         'CONFIRMATION_REQUIRED',
-        'Нужен MRTR-ответ пользователя либо действующий одноразовый confirmation_token из dry-run.',
+        'A user-approved MRTR response or a valid one-time confirmation_token from a dry run is required.',
       );
     }
 
@@ -402,7 +402,7 @@ export class WriteService {
               replacement_entry_id: replacementId,
               verified: true,
               message:
-                'POST replacement завершился ошибкой; точный replacement ID удалён, исходная запись сохранена.',
+                'The replacement POST failed; the exact replacement ID was removed and the original entry was preserved.',
             }
           : {
               status: 'partial_failure',
@@ -411,7 +411,7 @@ export class WriteService {
               replacement_entry_id: replacementId,
               verified: false,
               message:
-                'POST replacement завершился неоднозначно; проверьте оба entry ID вручную.',
+                'The replacement POST had an uncertain outcome; inspect both entry IDs manually.',
             };
         await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
         return result;
@@ -431,7 +431,7 @@ export class WriteService {
             replacement_entry_id: replacementId,
             verified: true,
             message:
-              'Новая запись не была подтверждена; replacement удалён, исходная запись сохранена.',
+              'The new entry could not be verified; the replacement was removed and the original entry was preserved.',
           }
         : {
             status: 'partial_failure',
@@ -440,7 +440,7 @@ export class WriteService {
             replacement_entry_id: replacementId,
             verified: false,
             message:
-              'Невозможно подтвердить replacement и восстановление исходного состояния; проверьте дневник вручную.',
+              'The replacement and restoration of the original state could not be confirmed; inspect the diary manually.',
           };
       await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
       return result;
@@ -473,7 +473,7 @@ export class WriteService {
         old_entry_id: original.id,
         replacement_entry_id: replacementId,
         verified: true,
-        message: 'Исходная запись сохранена, replacement отсутствует.',
+        message: 'The original entry was preserved and the replacement is absent.',
       };
       await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
       return result;
@@ -489,7 +489,7 @@ export class WriteService {
             replacement_entry_id: replacementId,
             verified: true,
             message:
-              'Удаление исходной записи не подтвердилось; replacement удалён, исходная запись сохранена.',
+              'Removal of the original entry could not be confirmed; the replacement was removed and the original entry was preserved.',
           }
         : {
             status: 'partial_failure',
@@ -498,7 +498,7 @@ export class WriteService {
             replacement_entry_id: replacementId,
             verified: false,
             message:
-              'Исходная и новая записи могут существовать одновременно; проверьте дневник вручную.',
+              'The original and replacement entries may both exist; inspect the diary manually.',
           };
       await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
       return result;
@@ -511,7 +511,7 @@ export class WriteService {
       replacement_entry_id: replacementId,
       verified: false,
       message:
-        'Итог удаления не удалось перечитать; повторная запись заблокирована idempotency journal.',
+        'The removal outcome could not be reread; another write is blocked by the idempotency journal.',
     };
     await this.idempotency.complete('update_consumed_item', input.client_request_id, result);
     return result;
@@ -563,7 +563,7 @@ export class WriteService {
       await this.idempotency.fail('remove_consumed_item', input.client_request_id);
       throw new NutritionMcpError(
         'CONFIRMATION_REQUIRED',
-        'Нужен MRTR-ответ пользователя либо действующий одноразовый confirmation_token из dry-run.',
+        'A user-approved MRTR response or a valid one-time confirmation_token from a dry run is required.',
       );
     }
     // DELETE can be applied before a network failure. A thrown error leaves the
@@ -664,7 +664,7 @@ export class WriteService {
   ): Promise<Record<string, unknown>> {
     const product = await this.backend.getProduct(item.product_id);
     if (product === null) {
-      throw new NutritionMcpError('UPSTREAM_NOT_FOUND', 'Продукт не найден.');
+      throw new NutritionMcpError('UPSTREAM_NOT_FOUND', 'Product not found.');
     }
     const factor = item.amount / 100;
     return {
@@ -695,19 +695,19 @@ export class WriteService {
     if (item === undefined) {
       throw new NutritionMcpError(
         'UPSTREAM_NOT_FOUND',
-        'Запись дневника не найдена на указанную дату.',
+        'The diary entry was not found on the specified date.',
       );
     }
     if (item.kind !== 'product' || item.product_id === null) {
       throw new NutritionMcpError(
         'UNSUPPORTED_OPERATION',
-        'Безопасное изменение подтверждено только для обычных продуктов YAZIO.',
+        'Safe updates are supported only for regular YAZIO product entries.',
       );
     }
     if (item.amount === input.amount) {
       throw new NutritionMcpError(
         'VALIDATION_ERROR',
-        'Новое количество совпадает с текущим; изменение не требуется.',
+        'The new amount matches the current amount; no update is needed.',
       );
     }
     const replacementPreview = await this.consumedPreview({
@@ -737,7 +737,7 @@ export class WriteService {
     if (item === undefined) {
       throw new NutritionMcpError(
         'UPSTREAM_NOT_FOUND',
-        'Запись дневника не найдена на указанную дату.',
+        'The diary entry was not found on the specified date.',
       );
     }
     return {
@@ -763,7 +763,7 @@ export class WriteService {
     if (duplicate !== undefined) {
       throw new NutritionMcpError(
         'DUPLICATE_DETECTED',
-        'Найдена вероятная дублирующая запись; запись не выполнена.',
+        'A probable duplicate entry was found; nothing was written.',
         { details: { existing_item_id: duplicate.id, date: duplicate.date } },
       );
     }

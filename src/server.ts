@@ -214,22 +214,22 @@ export const createYazioServer = async (
   server.registerTool(
     'get_user_profile',
     {
-      title: 'Профиль питания',
+      title: 'Nutrition profile',
       description:
-        'Возвращает минимально необходимый allowlist профиля YAZIO без email, даты рождения, токенов и платёжных идентификаторов.',
+        'Returns a minimal allowlist of YAZIO profile fields without email, birth date, tokens, or payment identifiers.',
       inputSchema: z.object({}),
       outputSchema: toolOutputSchema(userProfileOutputSchema),
       annotations: readAnnotations,
     },
     async () =>
-      safeResult(config, () => backend.getUserProfile(), () => 'Профиль YAZIO получен.'),
+      safeResult(config, () => backend.getUserProfile(), () => 'YAZIO profile retrieved.'),
   );
 
   server.registerTool(
     'get_goals',
     {
-      title: 'Цели питания',
-      description: 'Возвращает цели калорий, БЖУ, воды, шагов и веса на дату.',
+      title: 'Nutrition goals',
+      description: 'Returns calorie, macro, water, step, and weight goals for a date.',
       inputSchema: getGoalsInputSchema,
       outputSchema: toolOutputSchema(goalsOutputSchema),
       annotations: readAnnotations,
@@ -239,7 +239,7 @@ export const createYazioServer = async (
       return safeResult(
         config,
         () => backend.getGoals(resolvedDate),
-        () => `Цели на ${resolvedDate} получены.`,
+        () => `Goals for ${resolvedDate} retrieved.`,
       );
     },
   );
@@ -247,9 +247,9 @@ export const createYazioServer = async (
   server.registerTool(
     'search_products',
     {
-      title: 'Поиск продуктов',
+      title: 'Search products',
       description:
-        'Ищет продукты YAZIO. По умолчанию используются RU и ru_RU; nutrition нормализован на 100 g/ml.',
+        'Searches YAZIO products. Defaults to US and en_US and accepts country/locale overrides; nutrition is normalized per 100 g/ml.',
       inputSchema: searchProductsInputSchema,
       outputSchema: toolOutputSchema(z.array(productOutputSchema)),
       annotations: readAnnotations,
@@ -258,15 +258,15 @@ export const createYazioServer = async (
       safeResult(
         config,
         () => backend.searchProducts(input),
-        (data) => `Найдено ${Array.isArray(data) ? data.length : 0} продуктов.`,
+        (data) => `Found ${Array.isArray(data) ? data.length : 0} products.`,
       ),
   );
 
   server.registerTool(
     'get_product',
     {
-      title: 'Карточка продукта',
-      description: 'Возвращает продукт по UUID с нормализованными nutrients на 100 g/ml.',
+      title: 'Product details',
+      description: 'Returns a product by UUID with nutrients normalized per 100 g/ml.',
       inputSchema: getProductInputSchema,
       outputSchema: toolOutputSchema(productDetailsOutputSchema.nullable()),
       annotations: readAnnotations,
@@ -275,16 +275,16 @@ export const createYazioServer = async (
       safeResult(
         config,
         () => backend.getProduct(product_id),
-        (data) => (data === null ? 'Продукт не найден.' : 'Карточка продукта получена.'),
+        (data) => (data === null ? 'Product not found.' : 'Product details retrieved.'),
       ),
   );
 
   server.registerTool(
     'get_diary',
     {
-      title: 'Дневник питания',
+      title: 'Nutrition diary',
       description:
-        'Возвращает дневник за дату или локально агрегированный диапазон до 31 дня; YAZIO не имеет подтверждённого range endpoint.',
+        'Returns the diary for one date or a locally aggregated range of up to 31 days; YAZIO has no confirmed range endpoint.',
       inputSchema: dateOrRangeInputSchema,
       outputSchema: toolOutputSchema(z.object({ days: z.array(diaryDayOutputSchema) })),
       annotations: readAnnotations,
@@ -309,7 +309,7 @@ export const createYazioServer = async (
             Array.isArray((data as { days?: unknown }).days)
               ? (data as { days: unknown[] }).days.length
               : 0;
-          return `Дневник получен за ${count} дн.`;
+          return `Diary retrieved for ${count} days.`;
         },
       ),
   );
@@ -317,8 +317,8 @@ export const createYazioServer = async (
   server.registerTool(
     'get_daily_summary',
     {
-      title: 'Сводка дня',
-      description: 'Возвращает суточные calories/БЖУ, цели, воду, шаги и разбивку по приёмам пищи.',
+      title: 'Daily summary',
+      description: 'Returns daily calories, macros, goals, water, steps, and meal breakdown.',
       inputSchema: getDateInputSchema,
       outputSchema: toolOutputSchema(dailySummaryOutputSchema),
       annotations: readAnnotations,
@@ -328,7 +328,7 @@ export const createYazioServer = async (
       return safeResult(
         config,
         () => backend.getDailySummary(resolvedDate),
-        () => `Сводка за ${resolvedDate} получена.`,
+        () => `Summary for ${resolvedDate} retrieved.`,
       );
     },
   );
@@ -336,8 +336,8 @@ export const createYazioServer = async (
   server.registerTool(
     'get_water_intake',
     {
-      title: 'Вода',
-      description: 'Возвращает кумулятивное потребление воды в миллилитрах на дату.',
+      title: 'Water intake',
+      description: 'Returns cumulative water intake in milliliters for a date.',
       inputSchema: getDateInputSchema,
       outputSchema: toolOutputSchema(waterOutputSchema),
       annotations: readAnnotations,
@@ -347,7 +347,7 @@ export const createYazioServer = async (
       return safeResult(
         config,
         () => backend.getWaterIntake(resolvedDate),
-        () => `Вода за ${resolvedDate} получена.`,
+        () => `Water intake for ${resolvedDate} retrieved.`,
       );
     },
   );
@@ -355,8 +355,8 @@ export const createYazioServer = async (
   server.registerTool(
     'get_weight',
     {
-      title: 'Вес',
-      description: 'Возвращает последнюю запись веса на указанную дату или ранее.',
+      title: 'Weight',
+      description: 'Returns the latest weight entry on or before the specified date.',
       inputSchema: getDateInputSchema,
       outputSchema: toolOutputSchema(weightOutputSchema.nullable()),
       annotations: readAnnotations,
@@ -366,7 +366,7 @@ export const createYazioServer = async (
       return safeResult(
         config,
         () => backend.getWeight(resolvedDate),
-        () => `Вес на ${resolvedDate} получен.`,
+        () => `Weight for ${resolvedDate} retrieved.`,
       );
     },
   );
@@ -374,8 +374,8 @@ export const createYazioServer = async (
   server.registerTool(
     'get_exercises',
     {
-      title: 'Упражнения',
-      description: 'Возвращает тренировки и custom training на дату.',
+      title: 'Exercises',
+      description: 'Returns training and custom training entries for a date.',
       inputSchema: getDateInputSchema,
       outputSchema: toolOutputSchema(z.array(exerciseOutputSchema)),
       annotations: readAnnotations,
@@ -385,7 +385,7 @@ export const createYazioServer = async (
       return safeResult(
         config,
         () => backend.getExercises(resolvedDate),
-        (data) => `Получено ${Array.isArray(data) ? data.length : 0} упражнений.`,
+        (data) => `Retrieved ${Array.isArray(data) ? data.length : 0} exercises.`,
       );
     },
   );
@@ -393,9 +393,9 @@ export const createYazioServer = async (
   server.registerTool(
     'add_consumed_item',
     {
-      title: 'Добавить продукт',
+      title: 'Add consumed item',
       description:
-        'Показывает preview, проверяет дубли, записывает продукт идемпотентно и перечитывает дневник. dry_run=true по умолчанию.',
+        'Shows a preview, checks for duplicates, writes idempotently, and rereads the diary. dry_run defaults to true.',
       inputSchema: addConsumedItemInputSchema,
       outputSchema: toolOutputSchema(addConsumedItemOutputSchema),
       annotations: writeAnnotations,
@@ -404,16 +404,16 @@ export const createYazioServer = async (
       safeResult(
         config,
         () => writeService.addConsumedItem(input),
-        (data) => `Результат добавления: ${statusText(data)}.`,
+        (data) => `Add result: ${statusText(data)}.`,
       ),
   );
 
   server.registerTool(
     'add_meal_batch',
     {
-      title: 'Пакетное добавление еды',
+      title: 'Add meal batch',
       description:
-        'Последовательно добавляет до 25 продуктов; при частичной ошибке компенсирует ранее созданные записи и сообщает результат каждого элемента.',
+        'Adds up to 25 products sequentially; on partial failure, compensates earlier writes and reports each item result.',
       inputSchema: addMealBatchInputSchema,
       outputSchema: toolOutputSchema(batchOutputSchema),
       annotations: writeAnnotations,
@@ -422,16 +422,16 @@ export const createYazioServer = async (
       safeResult(
         config,
         () => writeService.addMealBatch(input),
-        (data) => `Результат batch: ${statusText(data)}.`,
+        (data) => `Batch result: ${statusText(data)}.`,
       ),
   );
 
   server.registerTool(
     'update_consumed_item',
     {
-      title: 'Изменить количество продукта',
+      title: 'Update consumed item amount',
       description:
-        'Безопасно заменяет существующую запись продукта: создаёт и проверяет replacement, затем удаляет точный старый ID. При ошибке пытается компенсировать replacement. Нативный PATCH YAZIO не подтверждён.',
+        'Safely replaces an existing product entry: creates and verifies a replacement, then removes the exact old ID. Attempts compensation on failure. A native YAZIO PATCH endpoint is not confirmed.',
       inputSchema: updateConsumedItemInputSchema,
       outputSchema: toolOutputSchema(updateConsumedItemOutputSchema),
       annotations: removeAnnotations,
@@ -441,7 +441,7 @@ export const createYazioServer = async (
         return safeResult(
           config,
           () => writeService.updateConsumedItem(input),
-          (data) => `Результат изменения: ${statusText(data)}.`,
+          (data) => `Update result: ${statusText(data)}.`,
         );
       }
       const operationFingerprint = fingerprint({
@@ -469,19 +469,19 @@ export const createYazioServer = async (
         return safeResult(
           config,
           () => writeService.updateConsumedItem(input, { kind: 'mrtr' }),
-          (data) => `Результат изменения: ${statusText(data)}.`,
+          (data) => `Update result: ${statusText(data)}.`,
         );
       }
       if (response?.confirm === false) {
         return errorResult(
-          new NutritionMcpError('CONFIRMATION_REQUIRED', 'Изменение отменено пользователем.'),
+          new NutritionMcpError('CONFIRMATION_REQUIRED', 'The update was cancelled by the user.'),
         );
       }
       if (response?.confirm === true) {
         return errorResult(
           new NutritionMcpError(
             'CONFIRMATION_REQUIRED',
-            'MRTR requestState отсутствует, истёк или не соответствует операции.',
+            'The MRTR requestState is missing, expired, or does not match the operation.',
           ),
         );
       }
@@ -489,9 +489,9 @@ export const createYazioServer = async (
         inputRequests: {
           confirm_update: inputRequired.elicit({
             message:
-              `Подтвердите изменение «${prepared.preview.old_item.name ?? input.item_id}» ` +
+              `Confirm updating "${prepared.preview.old_item.name ?? input.item_id}" ` +
               `(${prepared.preview.old_item.daytime}, ${input.date}) ` +
-              `с ${prepared.preview.old_item.amount} на ${input.amount}.`,
+              `from ${prepared.preview.old_item.amount} to ${input.amount}.`,
             requestedSchema: confirmationSchema,
           }),
         },
@@ -509,9 +509,9 @@ export const createYazioServer = async (
   server.registerTool(
     'remove_consumed_item',
     {
-      title: 'Удалить запись еды',
+      title: 'Remove consumed item',
       description:
-        'Удаляет только конкретный diary item ID после MRTR-подтверждения. Fallback: dry-run выдаёт одноразовый confirmation_token с TTL.',
+        'Removes only the specified diary item ID after MRTR confirmation. Fallback: a dry run issues a one-time confirmation_token with a TTL.',
       inputSchema: removeConsumedItemInputSchema,
       outputSchema: toolOutputSchema(removeConsumedItemOutputSchema),
       annotations: removeAnnotations,
@@ -521,7 +521,7 @@ export const createYazioServer = async (
         return safeResult(
           config,
           () => writeService.removeConsumedItem(input),
-          (data) => `Результат удаления: ${statusText(data)}.`,
+          (data) => `Removal result: ${statusText(data)}.`,
         );
       }
       const operationFingerprint = fingerprint({ date: input.date, item_id: input.item_id });
@@ -545,19 +545,19 @@ export const createYazioServer = async (
         return safeResult(
           config,
           () => writeService.removeConsumedItem(input, { kind: 'mrtr' }),
-          (data) => `Результат удаления: ${statusText(data)}.`,
+          (data) => `Removal result: ${statusText(data)}.`,
         );
       }
       if (response?.confirm === false) {
         return errorResult(
-          new NutritionMcpError('CONFIRMATION_REQUIRED', 'Удаление отменено пользователем.'),
+          new NutritionMcpError('CONFIRMATION_REQUIRED', 'The removal was cancelled by the user.'),
         );
       }
       if (response?.confirm === true) {
         return errorResult(
           new NutritionMcpError(
             'CONFIRMATION_REQUIRED',
-            'MRTR requestState отсутствует, истёк или не соответствует операции.',
+            'The MRTR requestState is missing, expired, or does not match the operation.',
           ),
         );
       }
@@ -565,7 +565,7 @@ export const createYazioServer = async (
         inputRequests: {
           confirm_removal: inputRequired.elicit({
             message:
-              `Подтвердите удаление «${prepared.item.name ?? input.item_id}» ` +
+              `Confirm removing "${prepared.item.name ?? input.item_id}" ` +
               `(${prepared.item.daytime}, ${prepared.item.amount}, ${input.date}).`,
             requestedSchema: confirmationSchema,
           }),
@@ -584,9 +584,9 @@ export const createYazioServer = async (
   server.registerTool(
     'add_water_intake',
     {
-      title: 'Добавить воду',
+      title: 'Add water intake',
       description:
-        'Читает текущий кумулятивный объём, добавляет amount_ml, записывает новый total и проверяет повторным чтением.',
+        'Reads the current cumulative amount, adds amount_ml, writes the new total, and verifies it by rereading.',
       inputSchema: addWaterInputSchema,
       outputSchema: toolOutputSchema(addWaterOutputSchema),
       annotations: writeAnnotations,
@@ -595,16 +595,16 @@ export const createYazioServer = async (
       safeResult(
         config,
         () => writeService.addWaterIntake(input),
-        (data) => `Результат воды: ${statusText(data)}.`,
+        (data) => `Water update result: ${statusText(data)}.`,
       ),
   );
 
   server.registerTool(
     'get_nutrition_trends',
     {
-      title: 'Тренды питания',
+      title: 'Nutrition trends',
       description:
-        'Агрегирует daily summary по дням, ISO-неделям или месяцам; считает средние, цели, стабильность и отклонения.',
+        'Aggregates daily summaries by day, ISO week, or month and calculates averages, goals, stability, and deviations.',
       inputSchema: trendsInputSchema,
       outputSchema: toolOutputSchema(trendsOutputSchema),
       annotations: readAnnotations,
@@ -621,15 +621,15 @@ export const createYazioServer = async (
             partial: loaded.partial,
           };
         },
-        () => `Тренды ${start_date}–${end_date} рассчитаны.`,
+        () => `Trends for ${start_date}–${end_date} calculated.`,
       ),
   );
 
   server.registerTool(
     'compare_periods',
     {
-      title: 'Сравнить периоды',
-      description: 'Сравнивает средние calories/БЖУ двух диапазонов до 366 дней каждый.',
+      title: 'Compare periods',
+      description: 'Compares average calories and macros across two ranges of up to 366 days each.',
       inputSchema: comparePeriodsInputSchema,
       outputSchema: toolOutputSchema(comparePeriodsOutputSchema),
       annotations: readAnnotations,
@@ -671,16 +671,16 @@ export const createYazioServer = async (
             partial: firstLoaded.partial || secondLoaded.partial,
           };
         },
-        () => 'Периоды сравнены.',
+        () => 'Periods compared.',
       ),
   );
 
   server.registerTool(
     'detect_probable_missing_meals',
     {
-      title: 'Вероятные пропуски еды',
+      title: 'Probable missing meals',
       description:
-        'Находит подозрительно пустые meal buckets. Не создаёт записи и не утверждает, что пользователь действительно ел.',
+        'Finds suspiciously empty meal buckets. It never creates entries or claims that the user actually ate.',
       inputSchema: missingMealsInputSchema,
       outputSchema: toolOutputSchema(missingMealsOutputSchema),
       annotations: readAnnotations,
@@ -709,7 +709,7 @@ export const createYazioServer = async (
             Array.isArray((data as { findings?: unknown }).findings)
               ? (data as { findings: unknown[] }).findings.length
               : 0;
-          return `Найдено ${count} вероятных пропусков; автоматических записей нет.`;
+          return `Found ${count} probable omissions; no automatic entries were created.`;
         },
       ),
   );

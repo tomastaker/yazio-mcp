@@ -5,7 +5,7 @@ import { errorCodeSchema } from './errors.js';
 const validIsoDate = (value: string): boolean =>
   DateTime.fromISO(value, { zone: 'utc' }).isValid && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
-export const isoDateSchema = z.string().refine(validIsoDate, 'Ожидается существующая дата YYYY-MM-DD');
+export const isoDateSchema = z.string().refine(validIsoDate, 'Expected a valid date in YYYY-MM-DD format');
 export const uuidSchema = z.uuid();
 export const mealTypeSchema = z.enum(['breakfast', 'lunch', 'dinner', 'snack']);
 
@@ -27,7 +27,7 @@ export const dateRangeSchema = z
   })
   .strict()
   .refine(({ start_date, end_date }) => start_date <= end_date, {
-    message: 'start_date не может быть позже end_date',
+    message: 'start_date must not be later than end_date',
     path: ['end_date'],
   });
 
@@ -42,20 +42,20 @@ export const dateOrRangeInputSchema = z
     if (date !== undefined && (start_date !== undefined || end_date !== undefined)) {
       context.addIssue({
         code: 'custom',
-        message: 'Укажите date либо start_date/end_date, но не оба варианта',
+        message: 'Provide either date or start_date/end_date, not both',
       });
     }
     if ((start_date === undefined) !== (end_date === undefined)) {
       context.addIssue({
         code: 'custom',
-        message: 'start_date и end_date должны быть указаны вместе',
+        message: 'start_date and end_date must be provided together',
       });
     }
     if (start_date !== undefined && end_date !== undefined && start_date > end_date) {
       context.addIssue({
         code: 'custom',
         path: ['end_date'],
-        message: 'start_date не может быть позже end_date',
+        message: 'start_date must not be later than end_date',
       });
     }
   });
@@ -103,7 +103,7 @@ export const consumedItemFieldsSchema = z
     if ((serving == null) !== (serving_quantity == null)) {
       context.addIssue({
         code: 'custom',
-        message: 'serving и serving_quantity должны быть заданы вместе либо оба отсутствовать',
+        message: 'serving and serving_quantity must either both be provided or both be omitted',
       });
     }
   });

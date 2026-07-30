@@ -18,6 +18,9 @@ describe('YAZIO authentication configuration', () => {
     expect(config.clientId).toBe(DEFAULT_YAZIO_CLIENT_ID);
     expect(config.clientSecret).toBe(DEFAULT_YAZIO_CLIENT_SECRET);
     expect(config.baseUrl).toBe('https://yzapi.yazio.com/v19');
+    expect(config.timezone).toBe('UTC');
+    expect(config.countries).toEqual(['US']);
+    expect(config.locales).toEqual(['en_US']);
   });
 
   it('allows an advanced client credential pair override', () => {
@@ -59,7 +62,7 @@ describe('timezone configuration', () => {
   it('rejects conflicting current and legacy aliases', () => {
     expect(() =>
       loadConfig({
-        YAZIO_MCP_TIMEZONE: 'Europe/Moscow',
+        YAZIO_MCP_TIMEZONE: 'America/New_York',
         NUTRITION_MCP_TIMEZONE: 'Asia/Tokyo',
       }),
     ).toThrowError(expect.objectContaining({ code: 'CONFIG_ERROR' }));

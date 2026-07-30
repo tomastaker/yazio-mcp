@@ -25,7 +25,7 @@ export interface TokenStore {
 const rejectSymlink = async (path: string): Promise<void> => {
   try {
     if ((await lstat(path)).isSymbolicLink()) {
-      throw new NutritionMcpError('CONFIG_ERROR', 'Token cache не может быть символической ссылкой.');
+      throw new NutritionMcpError('CONFIG_ERROR', 'The token cache must not be a symbolic link.');
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -42,7 +42,7 @@ export class FileTokenStore implements TokenStore {
       return parsed.success ? parsed.data : null;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) return null;
-      throw new NutritionMcpError('CONFIG_ERROR', 'Не удалось прочитать token cache.', { cause: error });
+      throw new NutritionMcpError('CONFIG_ERROR', 'Unable to read the token cache.', { cause: error });
     }
   }
 
@@ -67,7 +67,7 @@ export class FileTokenStore implements TokenStore {
     } catch (error) {
       await handle?.close().catch(() => undefined);
       await unlink(temporaryPath).catch(() => undefined);
-      throw new NutritionMcpError('CONFIG_ERROR', 'Не удалось безопасно сохранить token cache.', {
+      throw new NutritionMcpError('CONFIG_ERROR', 'Unable to save the token cache securely.', {
         cause: error,
       });
     }

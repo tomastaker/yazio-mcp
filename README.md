@@ -23,7 +23,8 @@ typed adapter maintained in this repository. It does not depend on the legacy
 
 ## What you can do
 
-- Search the YAZIO product database using Russian defaults (`RU`, `ru_RU`).
+- Search the YAZIO product database using international English defaults
+  (`US`, `en_US`) or configure any supported country and locale.
 - Read breakfast, lunch, dinner, and snack entries for one day or a date range.
 - Inspect daily calories, macros, water, weight, goals, and exercises.
 - Add individual products or a compensated batch of meal items.
@@ -159,13 +160,20 @@ Both can be overridden together if YAZIO rotates them.
 | `YAZIO_BASE_URL` | `https://yzapi.yazio.com/v19` | Trusted local API configuration |
 | `YAZIO_TOKEN_CACHE_PATH` | `~/.yazio-mcp/token.json` | Access/refresh token cache |
 | `YAZIO_MCP_STATE_PATH` | `~/.yazio-mcp/state.json` | Idempotency and confirmation state |
-| `YAZIO_MCP_TIMEZONE` | `Europe/Moscow` | IANA timezone used for dates |
-| `YAZIO_PRODUCT_COUNTRIES` | `RU` | Comma-separated product countries |
-| `YAZIO_PRODUCT_LOCALES` | `ru_RU` | Comma-separated product locales |
+| `YAZIO_MCP_TIMEZONE` | `UTC` | IANA timezone used for dates |
+| `YAZIO_PRODUCT_COUNTRIES` | `US` | Comma-separated product countries |
+| `YAZIO_PRODUCT_LOCALES` | `en_US` | Comma-separated product locales |
 | `YAZIO_DEFAULT_SEX` | `male` | Search parameter required by the upstream API |
 | `YAZIO_HTTP_TIMEOUT_MS` | `15000` | HTTP timeout, from 1,000 to 120,000 ms |
 | `YAZIO_CLIENT_ID` | built in | Advanced paired OAuth override |
 | `YAZIO_CLIENT_SECRET` | built in | Advanced paired OAuth override |
+
+Country, locale, and timezone are independent. For example, a German setup can
+use `YAZIO_PRODUCT_COUNTRIES=DE`,
+`YAZIO_PRODUCT_LOCALES=de_DE`, and
+`YAZIO_MCP_TIMEZONE=Europe/Berlin`. Multiple search values can be supplied as
+comma-separated lists; explicit `countries` and `locales` tool arguments
+override these defaults for an individual search.
 
 `NUTRITION_MCP_STATE_PATH` and `NUTRITION_MCP_TIMEZONE` are accepted as
 deprecated migration aliases. Conflicting old and new values are rejected.
@@ -269,7 +277,7 @@ mcp_servers:
     env:
       YAZIO_USERNAME: "set-locally"
       YAZIO_PASSWORD: "set-locally"
-      YAZIO_MCP_TIMEZONE: "Europe/Moscow"
+      YAZIO_MCP_TIMEZONE: "UTC"
     timeout: 90
     connect_timeout: 15
     supports_parallel_tool_calls: false
@@ -282,7 +290,7 @@ unofficial API.
 ## Example prompts
 
 ```text
-Search the Russian YAZIO database for Snickers and show me the best matches.
+Search the YAZIO product database for Snickers and show me the best matches.
 
 Show everything I logged for breakfast, lunch, dinner, and snacks today.
 
@@ -307,7 +315,7 @@ Successful tools return both text and structured data:
   "ok": true,
   "data": {},
   "meta": {
-    "timezone": "Europe/Moscow",
+    "timezone": "UTC",
     "backend": "yazio-unofficial",
     "generated_at": "2026-07-30T00:00:00.000Z"
   }

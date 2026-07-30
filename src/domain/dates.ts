@@ -5,7 +5,7 @@ export const todayInZone = (timezone: string): string => {
   const date = DateTime.now().setZone(timezone);
   const isoDate = date.toISODate();
   if (!date.isValid || isoDate === null) {
-    throw new NutritionMcpError('CONFIG_ERROR', 'Настроена несуществующая IANA timezone.');
+    throw new NutritionMcpError('CONFIG_ERROR', 'The configured IANA time zone is invalid.');
   }
   return isoDate;
 };
@@ -20,12 +20,12 @@ export const enumerateDates = (
   const end = DateTime.fromISO(endDate, { zone: timezone }).startOf('day');
   const days = Math.floor(end.diff(cursor, 'days').days) + 1;
   if (!cursor.isValid || !end.isValid || days < 1) {
-    throw new NutritionMcpError('VALIDATION_ERROR', 'Некорректный диапазон дат.');
+    throw new NutritionMcpError('VALIDATION_ERROR', 'Invalid date range.');
   }
   if (days > maximumDays) {
     throw new NutritionMcpError(
       'DATE_RANGE_TOO_LARGE',
-      `Диапазон ограничен ${maximumDays} днями.`,
+      `The date range is limited to ${maximumDays} days.`,
       { details: { requested_days: days, maximum_days: maximumDays } },
     );
   }

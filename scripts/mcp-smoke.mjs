@@ -65,7 +65,7 @@ const httpServer = createServer((request, response) => {
         servings: [],
         eans: [],
         language: 'ru',
-        countries: ['RU'],
+        countries: ['US'],
         is_verified: true,
         category: 'grain',
       }),
@@ -141,7 +141,7 @@ const childEnvironment = {
   YAZIO_BASE_URL: `http://127.0.0.1:${address.port}/v20`,
   YAZIO_TOKEN_CACHE_PATH: tokenPath,
   YAZIO_MCP_STATE_PATH: statePath,
-  YAZIO_MCP_TIMEZONE: 'Europe/Moscow',
+  YAZIO_MCP_TIMEZONE: 'UTC',
 };
 
 const runClient = async (mode, expectedEra) => {

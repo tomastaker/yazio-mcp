@@ -3,7 +3,7 @@ import { YazioAdapter } from '../src/adapters/yazio-adapter.js';
 import { PRODUCT_FIXTURE, PRODUCT_ID } from './fixtures/yazio.js';
 
 describe('YazioAdapter', () => {
-  it('uses Russian product search defaults and normalizes nutrients', async () => {
+  it('uses configured English product search defaults and normalizes nutrients', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       new Response(
         JSON.stringify([
@@ -18,8 +18,8 @@ describe('YazioAdapter', () => {
             producer: PRODUCT_FIXTURE.producer,
             is_verified: true,
             nutrients: PRODUCT_FIXTURE.nutrients,
-            countries: ['RU'],
-            language: 'ru',
+            countries: ['US'],
+            language: 'en',
           },
         ]),
         { status: 200 },
@@ -28,8 +28,8 @@ describe('YazioAdapter', () => {
     const adapter = new YazioAdapter(
       {
         baseUrl: 'https://yzapi.yazio.com/v20',
-        countries: ['RU'],
-        locales: ['ru_RU'],
+        countries: ['US'],
+        locales: ['en_US'],
         defaultSex: 'male',
         timeoutMs: 1000,
       },
@@ -37,7 +37,7 @@ describe('YazioAdapter', () => {
       fetchMock,
     );
 
-    const products = await adapter.searchProducts({ query: 'овсянка' });
+    const products = await adapter.searchProducts({ query: 'oatmeal' });
     const requestInput = fetchMock.mock.calls[0]?.[0];
     const requestUrl =
       typeof requestInput === 'string'
@@ -45,8 +45,8 @@ describe('YazioAdapter', () => {
         : requestInput instanceof URL
           ? requestInput.href
           : (requestInput?.url ?? '');
-    expect(requestUrl).toContain('countries=RU');
-    expect(requestUrl).toContain('locales=ru_RU');
+    expect(requestUrl).toContain('countries=US');
+    expect(requestUrl).toContain('locales=en_US');
     expect(products[0]?.nutrition).toEqual({
       calories: 370,
       protein: 13,
@@ -74,8 +74,8 @@ describe('YazioAdapter', () => {
     const adapter = new YazioAdapter(
       {
         baseUrl: 'https://yzapi.yazio.com/v20',
-        countries: ['RU'],
-        locales: ['ru_RU'],
+        countries: ['US'],
+        locales: ['en_US'],
         defaultSex: 'male',
         timeoutMs: 1000,
       },
@@ -107,8 +107,8 @@ describe('YazioAdapter', () => {
       const adapter = new YazioAdapter(
         {
           baseUrl: 'https://yzapi.yazio.com/v20',
-          countries: ['RU'],
-          locales: ['ru_RU'],
+          countries: ['US'],
+          locales: ['en_US'],
           defaultSex: 'male',
           timeoutMs: 1000,
         },
@@ -138,8 +138,8 @@ describe('YazioAdapter', () => {
     const adapter = new YazioAdapter(
       {
         baseUrl: 'https://yzapi.yazio.com/v20',
-        countries: ['RU'],
-        locales: ['ru_RU'],
+        countries: ['US'],
+        locales: ['en_US'],
         defaultSex: 'male',
         timeoutMs: 1000,
       },
@@ -156,8 +156,8 @@ describe('YazioAdapter', () => {
     const mutationAdapter = new YazioAdapter(
       {
         baseUrl: 'https://yzapi.yazio.com/v20',
-        countries: ['RU'],
-        locales: ['ru_RU'],
+        countries: ['US'],
+        locales: ['en_US'],
         defaultSex: 'male',
         timeoutMs: 1000,
       },
