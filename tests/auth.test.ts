@@ -106,6 +106,97 @@ describe('AuthManager', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it('picks up a token rotated by another process sharing the cache instead of refreshing', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-auth-'));
+    const path = join(directory, 'token.json');
+    const storeA = new FileTokenStore(path);
+    const storeB = new FileTokenStore(path);
+    await storeA.save(boundToken(Date.now() + 3_600_000));
+
+    const processA = new AuthManager(authConfig, storeA, fetchMock);
+    await expect(processA.getAccessToken()).resolves.toBe(TOKEN_FIXTURE.access_token);
+
+    // Process B rotates the shared token (old refresh token is now revoked upstream).
+    await storeB.save({
+      ...boundToken(Date.now() + 3_600_000),
+      access_token: 'rotated-by-b',
+      refresh_token: 'refresh-from-b',
+    });
+    // Process A's in-memory token expires / is rejected.
+    processA.invalidate();
+
+    await expect(processA.getAccessToken()).resolves.toBe('rotated-by-b');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refreshes with the latest shared refresh token, not the stale in-memory one', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-auth-'));
+    const path = join(directory, 'token.json');
+    const store = new FileTokenStore(path);
+    await store.save(boundToken(Date.now() + 3_600_000));
+    const auth = new AuthManager(authConfig, store, fetchMock);
+    await auth.getAccessToken();
+
+    await store.save({ ...boundToken(Date.now() - 1), refresh_token: 'refresh-from-other-process' });
+    auth.invalidate();
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ...TOKEN_FIXTURE, access_token: 'fresh' }), { status: 200 }),
+    );
+
+    await expect(auth.getAccessToken()).resolves.toBe('fresh');
+    const rawBody = fetchMock.mock.calls[0]?.[1]?.body;
+    const body = JSON.parse(typeof rawBody === 'string' ? rawBody : '{}') as Record<string, string>;
+    expect(body).toMatchObject({
+      grant_type: 'refresh_token',
+      refresh_token: 'refresh-from-other-process',
+    });
+  });
+
+  it('does not reuse an access token the API rejected even if the cache still holds it', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-auth-'));
+    const store = new FileTokenStore(join(directory, 'token.json'));
+    await store.save(boundToken(Date.now() + 3_600_000));
+    const auth = new AuthManager(authConfig, store, fetchMock);
+    await auth.getAccessToken();
+    auth.invalidate();
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ...TOKEN_FIXTURE, access_token: 'after-401' }), { status: 200 }),
+    );
+
+    await expect(auth.getAccessToken()).resolves.toBe('after-401');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [400, { error: 'invalid_request' }],
+    [401, {}],
+    [400, { error: 'unauthorized_client' }],
+  ])('falls back to password grant when refresh is rejected with %s %j', async (status, payload) => {
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-auth-'));
+    const store = new FileTokenStore(join(directory, 'token.json'));
+    await store.save(boundToken(Date.now() - 1));
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload), { status }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(TOKEN_FIXTURE), { status: 200 }));
+    const auth = new AuthManager(authConfig, store, fetchMock);
+
+    await expect(auth.getAccessToken()).resolves.toBe(TOKEN_FIXTURE.access_token);
+    const rawBody = fetchMock.mock.calls[1]?.[1]?.body;
+    const body = JSON.parse(typeof rawBody === 'string' ? rawBody : '{}') as Record<string, string>;
+    expect(body.grant_type).toBe('password');
+  });
+
+  it('does not send the password when the refresh fails with a server error', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-auth-'));
+    const store = new FileTokenStore(join(directory, 'token.json'));
+    await store.save(boundToken(Date.now() - 1));
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+    const auth = new AuthManager(authConfig, store, fetchMock);
+
+    await expect(auth.getAccessToken()).rejects.toMatchObject({ code: 'UPSTREAM_ERROR' });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('does not reuse a cached token bound to another username', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'yazio-mcp-auth-'));
     const store = new FileTokenStore(join(directory, 'token.json'));

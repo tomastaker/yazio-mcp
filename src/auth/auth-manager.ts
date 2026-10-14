@@ -40,31 +40,46 @@ export class AuthManager implements AccessTokenProvider {
     private readonly fetchImplementation: typeof fetch = fetch,
   ) {}
 
+  /** Access token rejected by the API; never reuse it even if the shared cache still holds it. */
+  private rejectedAccessToken: string | null = null;
+
   async getAccessToken(): Promise<string> {
     if (this.token !== null && this.isUsable(this.token)) return this.token.access_token;
-    let stored = this.token ?? (await this.store.load());
-    if (stored !== null && !this.matchesConfiguredAccount(stored)) {
-      await this.store.clear();
-      stored = null;
-      this.token = null;
-    }
+    // The token cache may be shared by several server processes (gateway, cron, ad-hoc runs).
+    // Always re-read it before refreshing: another process may already have rotated the token,
+    // and refreshing with our stale in-memory refresh token would then be rejected.
+    const stored = await this.loadSharedToken();
     if (stored !== null && this.isUsable(stored)) {
       this.token = stored;
       return stored.access_token;
     }
-    this.pending ??= this.obtainToken(stored).finally(() => {
+    this.pending ??= this.obtainToken(stored ?? this.token).finally(() => {
       this.pending = null;
     });
     this.token = await this.pending;
+    this.rejectedAccessToken = null;
     return this.token.access_token;
   }
 
   invalidate(): void {
-    if (this.token !== null) this.token = { ...this.token, expires_at: 0 };
+    if (this.token !== null) {
+      this.rejectedAccessToken = this.token.access_token;
+      this.token = { ...this.token, expires_at: 0 };
+    }
+  }
+
+  private async loadSharedToken(): Promise<StoredToken | null> {
+    const stored = await this.store.load();
+    if (stored !== null && !this.matchesConfiguredAccount(stored)) {
+      await this.store.clear();
+      this.token = null;
+      return null;
+    }
+    return stored;
   }
 
   private isUsable(token: StoredToken): boolean {
-    return token.expires_at - 60_000 > Date.now();
+    return token.access_token !== this.rejectedAccessToken && token.expires_at - 60_000 > Date.now();
   }
 
   private matchesConfiguredAccount(token: StoredToken): boolean {
@@ -80,13 +95,19 @@ export class AuthManager implements AccessTokenProvider {
           refresh_token: expired.refresh_token,
         });
       } catch (error) {
+        // invalid_client means the application credentials are wrong: a password grant cannot help.
+        // Transport errors (no status) and 5xx are not credential problems either.
         if (
           !(error instanceof NutritionMcpError) ||
           error.code !== 'AUTH_FAILED' ||
-          error.details?.reason !== 'invalid_grant'
+          error.retryable === true ||
+          error.details?.reason === 'invalid_client'
         ) {
           throw error;
         }
+        // A concurrent process may have rotated the refresh token between our read and our request.
+        const latest = await this.loadSharedToken();
+        if (latest !== null && this.isUsable(latest)) return latest;
       }
     }
     if (!this.config.username || !this.config.password) {
